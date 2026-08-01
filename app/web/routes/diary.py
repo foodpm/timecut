@@ -35,7 +35,13 @@ def list_diary():
 
 @router.get("/status")
 def diary_status():
-    """返回日记生成任务状态"""
+    """返回日记生成任务状态（兼容旧版简单状态）"""
+    return get_status()
+
+
+@router.get("/job")
+def diary_job_status():
+    """返回日记生成任务进度与日志（含阶段、百分比、滚动日志）"""
     return get_status()
 
 

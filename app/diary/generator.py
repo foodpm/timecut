@@ -3,7 +3,6 @@
 import base64
 import json
 import logging
-import threading
 import urllib.request
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -12,44 +11,31 @@ from config import settings
 from database import get_session, Diary
 from highlighter.detector import MotionDetector
 from highlighter.ai_selector import extract_frame
+from highlighter.job import diary_job
 
 logger = logging.getLogger("timecut.diary")
 
-# ── 生成任务状态（供前端轮询）──
-_lock = threading.Lock()
-_status = {"running": False, "date": "", "message": "", "error": "", "done": 0, "total": 0, "current": ""}
-
 
 def get_status() -> dict:
-    with _lock:
-        return dict(_status)
-
-
-def _set_status(**kw):
-    with _lock:
-        _status.update(kw)
+    return diary_job.to_dict()
 
 
 def run_diary_for_date(date: str) -> str | None:
-    """在后台线程执行的日记生成入口（更新状态、分析、保存）"""
-    with _lock:
-        if _status["running"]:
-            return None
-        _status.update({"running": True, "date": date, "message": "", "error": "",
-                        "done": 0, "total": 0, "current": ""})
+    """在后台线程执行的日记生成入口（更新任务状态/日志，分析、保存）"""
+    if diary_job.running:
+        return None
+    diary_job.start(date)
     try:
         content = DiaryGenerator().generate_for_date(date)
         if content:
-            _set_status(message="生成成功")
+            diary_job.finish(True, "日记生成成功")
             return content
-        _set_status(message="没有可生成的内容（未配置 AI 或当天无事件）")
+        diary_job.finish(False, "没有可生成的内容（未配置 AI 或当天无事件）")
         return None
     except Exception as e:
         logger.exception("日记生成异常")
-        _set_status(message=f"生成失败: {e}", error=str(e))
+        diary_job.finish(False, f"生成失败: {e}")
         return None
-    finally:
-        _set_status(running=False)
 
 
 class DiaryGenerator:
@@ -72,37 +58,48 @@ class DiaryGenerator:
             return None
 
         detector = MotionDetector()
-        _set_status(current="正在分析录像中的运动片段...")
+        diary_job.set_stage("分析录像", total=len(video_files))
+        diary_job.log_line(f"开始分析 {date} 的录像，共 {len(video_files)} 个片段")
         candidates = []  # (event_dt, score, seg, video_path)
-        for vf in video_files:
+        for i, vf in enumerate(video_files, 1):
             start_dt = self._parse_file_start(vf)
+            diary_job.set_stage("分析录像", done=i - 1, total=len(video_files), current=vf.name)
+            diary_job.log_line(f"[{i}/{len(video_files)}] 运动检测: {vf.name}")
             for seg in detector.analyze(vf):
                 candidates.append((start_dt, seg.score, seg, vf))
         if not candidates:
+            diary_job.finish(False, "未检测到运动，跳过日记")
             logger.info(f"{date} 未检测到运动，跳过日记")
             return None
+        diary_job.log_line(f"共检测到 {len(candidates)} 个运动片段，选取分数最高的 {min(len(candidates), self.max_events)} 个分析")
 
         # 按运动分数取前 N 个片段（控制成本，与精华识别一致）
         candidates.sort(key=lambda c: c[1], reverse=True)
         candidates = candidates[: self.max_events]
         candidates.sort(key=lambda c: c[0] + timedelta(seconds=c[2].start))
-        _set_status(total=len(candidates), current="")
 
         events = []  # (datetime, description)
+        diary_job.set_stage("大模型分析", total=len(candidates))
         for i, (start_dt, score, seg, vf) in enumerate(candidates, 1):
             frame_ts = seg.start + max(1.0, seg.duration / 2)
             event_dt = start_dt + timedelta(seconds=frame_ts)
-            _set_status(done=i - 1, current=f"{event_dt.strftime('%H:%M')} {vf.name}")
+            diary_job.set_stage("大模型分析", done=i - 1, total=len(candidates),
+                                current=f"{event_dt.strftime('%H:%M')} {vf.name}")
+            diary_job.log_line(f"[{i}/{len(candidates)}] {event_dt.strftime('%H:%M')} 分析画面: {vf.name}")
             frame = extract_frame(vf, frame_ts)
             if not frame:
                 continue
             desc = self._describe_frame(frame, event_dt)
             if desc:
                 events.append((event_dt, desc))
+                diary_job.log_line(f"    ↳ {desc}")
         if not events:
+            diary_job.finish(False, "所有片段均无值得记录的内容")
             logger.info(f"{date} 所有片段均无值得记录的内容")
             return None
 
+        diary_job.set_stage("汇总日记")
+        diary_job.log_line(f"汇总 {len(events)} 个事件，生成日记...")
         content = self._compose_diary(date, events)
         if not content:
             return None

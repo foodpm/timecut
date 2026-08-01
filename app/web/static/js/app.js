@@ -336,8 +336,14 @@ async function renderHighlights(el) {
     `;
     // 若已有生成任务在运行，自动弹出进度面板
     try {
-      const j = await API.get('/api/highlights/job');
-      if (j.running && !document.getElementById('hl-job-panel')) openHlJobPanel();
+      const [j, d] = await Promise.all([
+        API.get('/api/highlights/job'),
+        API.get('/api/diary/job').catch(() => ({ running: false })),
+      ]);
+      if (!document.getElementById('job-panel')) {
+        if (j.running) openJobPanel('highlight');
+        else if (d.running) openJobPanel('diary');
+      }
     } catch (e) { /* 忽略 */ }
   } catch (e) { el.innerHTML = `<div class="text-red-400 text-center py-20">加载失败: ${e.message}</div>`; }
 }
@@ -359,7 +365,7 @@ window.playHighlight = function(id, dateStr) {
     const data = await res.json();
     if (data.status === 'ok') {
       toast(data.message || '已开始生成精华视频', 'success');
-      openHlJobPanel();
+      openJobPanel('highlight');
     } else {
       toast(data.message || '触发失败', 'error');
     }
@@ -368,78 +374,121 @@ window.playHighlight = function(id, dateStr) {
   }
 };
 
-// ══════════ 精华生成进度面板（进度条 + 滚动日志）══════════
-let hlJobTimer = null;
-let hlLastLog = 0;
+// ══════════ 生成任务进度面板（多 tab：精华视频 / 日记，进度条 + 滚动日志）══════════
+const JOB_TABS = { highlight: '精华视频', diary: '日记' };
+let jobTimer = null;
+let jobLogCounts = { highlight: 0, diary: 0 };
+let jobActiveTab = null;
 
-function openHlJobPanel() {
-  const existing = document.getElementById('hl-job-panel');
-  if (existing) existing.remove();
-  document.body.insertAdjacentHTML('beforeend', `
-    <div id="hl-job-panel" class="fixed bottom-4 right-4 z-40 w-[400px] max-w-[92vw] bg-timecut-900 border border-timecut-700 rounded-xl shadow-2xl overflow-hidden">
-      <div class="flex items-center justify-between px-3 py-2 border-b border-timecut-700">
-        <span class="text-xs font-medium text-timecut-200">精华视频生成</span>
-        <button onclick="closeHlJobPanel()" class="text-timecut-500 hover:text-timecut-300 text-lg leading-none px-1">✕</button>
-      </div>
-      <div class="p-3">
-        <div class="flex items-center justify-between mb-1.5">
-          <span id="hl-job-stage" class="text-xs text-timecut-300">准备中...</span>
-          <span id="hl-job-pct-text" class="text-xs text-timecut-500">0%</span>
+function openJobPanel(kind) {
+  if (!JOB_TABS[kind]) return;
+  let panel = document.getElementById('job-panel');
+  if (!panel) {
+    document.body.insertAdjacentHTML('beforeend', `
+      <div id="job-panel" class="fixed bottom-4 right-4 z-40 w-[400px] max-w-[92vw] bg-timecut-900 border border-timecut-700 rounded-xl shadow-2xl overflow-hidden">
+        <div class="flex items-center justify-between px-3 py-2 border-b border-timecut-700">
+          <span class="text-xs font-medium text-timecut-200">生成任务</span>
+          <button onclick="closeJobPanel()" class="text-timecut-500 hover:text-timecut-300 text-lg leading-none px-1">✕</button>
         </div>
-        <div class="w-full h-2 bg-timecut-700 rounded-full overflow-hidden">
-          <div id="hl-job-pct" class="h-full bg-accent-500 transition-all duration-500" style="width:0%"></div>
-        </div>
-        <div id="hl-job-current" class="text-[11px] text-timecut-500 mt-1.5 truncate"></div>
-        <div id="hl-job-log" class="mt-2 h-44 overflow-y-auto bg-black/40 rounded-lg p-2 font-mono text-[11px] leading-relaxed text-timecut-400"></div>
-      </div>
-    </div>`);
-  hlLastLog = 0;
-  pollHighlightJob();
-  if (hlJobTimer) clearInterval(hlJobTimer);
-  hlJobTimer = setInterval(pollHighlightJob, 1500);
+        <div class="flex" id="job-tabs"></div>
+        ${Object.keys(JOB_TABS).map(k => `
+        <div class="p-3 hidden" id="job-tab-${k}">
+          <div class="flex items-center justify-between mb-1.5">
+            <span id="job-${k}-stage" class="text-xs text-timecut-300">准备中...</span>
+            <span id="job-${k}-pct-text" class="text-xs text-timecut-500">0%</span>
+          </div>
+          <div class="w-full h-2 bg-timecut-700 rounded-full overflow-hidden">
+            <div id="job-${k}-pct" class="h-full bg-accent-500 transition-all duration-500" style="width:0%"></div>
+          </div>
+          <div id="job-${k}-current" class="text-[11px] text-timecut-500 mt-1.5 truncate"></div>
+          <div id="job-${k}-log" class="mt-2 h-44 overflow-y-auto bg-black/40 rounded-lg p-2 font-mono text-[11px] leading-relaxed text-timecut-400"></div>
+        </div>`).join('')}
+      </div>`);
+  }
+  jobLogCounts[kind] = 0;
+  jobActiveTab = kind;
+  renderJobTabs();
+  switchJobTab(kind);
+  pollJobs();
+  if (jobTimer) clearInterval(jobTimer);
+  jobTimer = setInterval(pollJobs, 1500);
 }
 
-window.closeHlJobPanel = function() {
-  if (hlJobTimer) { clearInterval(hlJobTimer); hlJobTimer = null; }
-  const p = document.getElementById('hl-job-panel');
+function renderJobTabs() {
+  const tabs = document.getElementById('job-tabs');
+  if (!tabs) return;
+  tabs.innerHTML = Object.entries(JOB_TABS).map(([k, label]) => `
+    <button onclick="switchJobTab('${k}')" class="flex-1 px-3 py-2 text-xs transition-colors ${jobActiveTab === k ? 'text-accent-400 border-b-2 border-accent-500' : 'text-timecut-500 hover:text-timecut-300 border-b-2 border-transparent'}">${label}</button>`).join('');
+}
+
+window.switchJobTab = function(kind) {
+  if (!JOB_TABS[kind]) return;
+  jobActiveTab = kind;
+  Object.keys(JOB_TABS).forEach(k => {
+    const tab = document.getElementById('job-tab-' + k);
+    if (tab) tab.classList.toggle('hidden', k !== kind);
+  });
+  renderJobTabs();
+  pollJobOne(kind);
+};
+
+window.closeJobPanel = function() {
+  if (jobTimer) { clearInterval(jobTimer); jobTimer = null; }
+  const p = document.getElementById('job-panel');
   if (p) p.remove();
 };
 
-async function pollHighlightJob() {
+async function pollJobs() {
+  const jobs = await Promise.all([
+    API.get('/api/highlights/job').catch(() => null),
+    API.get('/api/diary/job').catch(() => null),
+  ]);
+  if (jobs[0]) renderJobContent('highlight', jobs[0]);
+  if (jobs[1]) renderJobContent('diary', jobs[1]);
+  // 两个任务都结束（或都为空）后停止轮询
+  if (jobs.every(j => !j || !j.running)) {
+    if (jobTimer) { clearInterval(jobTimer); jobTimer = null; }
+  }
+}
+
+async function pollJobOne(kind) {
   try {
-    const j = await API.get('/api/highlights/job');
-    const pct = document.getElementById('hl-job-pct');
-    const pctText = document.getElementById('hl-job-pct-text');
-    const stageEl = document.getElementById('hl-job-stage');
-    const curEl = document.getElementById('hl-job-current');
-    if (pct) pct.style.width = (j.percent || 0) + '%';
-    if (pctText) pctText.textContent = j.running ? (j.percent || 0) + '%' : (j.error ? '失败' : '完成');
-    if (stageEl) stageEl.textContent = j.stage + (j.running && j.total ? ` ${j.done}/${j.total}` : '');
-    if (curEl) curEl.textContent = j.current || '';
-    const logBox = document.getElementById('hl-job-log');
-    if (logBox && Array.isArray(j.log) && j.log.length > hlLastLog) {
-      const frag = document.createDocumentFragment();
-      for (let i = hlLastLog; i < j.log.length; i++) {
-        const d = document.createElement('div');
-        d.textContent = `${j.log[i].t}  ${j.log[i].text}`;
-        frag.appendChild(d);
-      }
-      logBox.appendChild(frag);
-      logBox.scrollTop = logBox.scrollHeight;
-      hlLastLog = j.log.length;
+    const url = kind === 'highlight' ? '/api/highlights/job' : '/api/diary/job';
+    const j = await API.get(url);
+    renderJobContent(kind, j);
+  } catch (e) { /* 忽略 */ }
+}
+
+function renderJobContent(kind, j) {
+  const pct = document.getElementById('job-' + kind + '-pct');
+  const pctText = document.getElementById('job-' + kind + '-pct-text');
+  const stageEl = document.getElementById('job-' + kind + '-stage');
+  const curEl = document.getElementById('job-' + kind + '-current');
+  if (pct) pct.style.width = (j.percent || 0) + '%';
+  if (pctText) pctText.textContent = j.running ? (j.percent || 0) + '%' : (j.error ? '失败' : '完成');
+  if (stageEl) stageEl.textContent = (j.stage || '') + (j.running && j.total ? ` ${j.done}/${j.total}` : '');
+  if (curEl) curEl.textContent = j.current || '';
+  const logBox = document.getElementById('job-' + kind + '-log');
+  if (logBox && Array.isArray(j.log) && j.log.length > (jobLogCounts[kind] || 0)) {
+    const frag = document.createDocumentFragment();
+    for (let i = jobLogCounts[kind] || 0; i < j.log.length; i++) {
+      const d = document.createElement('div');
+      d.textContent = `${j.log[i].t}  ${j.log[i].text}`;
+      frag.appendChild(d);
     }
-    // 结束条件：任务停止且有终态信息（message/error/100%）
-    const finished = !j.running && (j.message || j.error || j.percent === 100);
-    if (finished) {
-      if (hlJobTimer) { clearInterval(hlJobTimer); hlJobTimer = null; }
-      if (pct) { pct.className = 'h-full ' + (j.error ? 'bg-red-500' : 'bg-green-500'); pct.style.width = '100%'; }
-      // 仅当停留在精华视频页时刷新列表，避免覆盖其他页面内容
-      if ((location.hash.slice(1) || 'dashboard') === 'highlights') {
-        renderHighlights(document.getElementById('page-content'));
-      }
-    }
-  } catch (e) {
-    // 轮询失败忽略，等待下次
+    logBox.appendChild(frag);
+    logBox.scrollTop = logBox.scrollHeight;
+    jobLogCounts[kind] = j.log.length;
+  }
+  // 结束条件：任务停止且有终态信息
+  const finished = !j.running && (j.message || j.error || j.percent === 100);
+  if (finished && pct) {
+    pct.className = 'h-full ' + (j.error ? 'bg-red-500' : 'bg-green-500');
+    pct.style.width = '100%';
+    const page = location.hash.slice(1) || 'dashboard';
+    // 仅当停留在对应页面时刷新列表，避免覆盖其他页面内容
+    if (kind === 'highlight' && page === 'highlights') renderHighlights(document.getElementById('page-content'));
+    if (kind === 'diary' && page === 'diary') renderDiary(document.getElementById('page-content'));
   }
 }
 
@@ -505,6 +554,7 @@ window.deleteHighlight = async function(id) {
      const data = await res.json();
      if (data.status === 'ok') {
        toast(data.message || '已开始生成日记', 'success');
+       openJobPanel('diary');
        renderDiary(document.getElementById('page-content'));
      } else {
        toast(data.message || '触发失败', 'error');
