@@ -28,9 +28,14 @@ recorder = RecorderManager()
 cleaner = RecordingCleaner()
 scheduler = HighlightScheduler(recorder)
 
+# 主事件循环引用：同步路由在线程池中运行，需借此把协程调度回主循环
+_main_loop: asyncio.AbstractEventLoop | None = None
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global _main_loop
+    _main_loop = asyncio.get_running_loop()
     logger.info("=" * 40)
     logger.info("TimeCut 启动中...")
     logger.info(f"数据目录: {settings.data_dir}")
@@ -116,15 +121,9 @@ app.add_middleware(
 
 def trigger_restart_recording():
     """重新启动录制（配置变更后）"""
-    import asyncio
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        # 没有运行中的事件循环，使用 run()
-        asyncio.run(recorder.restart())
-    else:
-        # 有事件循环，创建任务
-        loop.create_task(recorder.restart())
+    if _main_loop is None or _main_loop.is_closed():
+        return {"status": "error", "message": "主事件循环不可用"}
+    asyncio.run_coroutine_threadsafe(recorder.restart(), _main_loop)
     return {"status": "ok", "message": "录制重启已触发"}
 
 
@@ -146,13 +145,9 @@ async def trigger_stop_recording():
 
 def trigger_delete_camera():
     """删除摄像头：停止录制"""
-    import asyncio
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        asyncio.run(recorder.stop())
-    else:
-        loop.create_task(recorder.stop())
+    if _main_loop is None or _main_loop.is_closed():
+        return {"status": "error", "message": "主事件循环不可用"}
+    asyncio.run_coroutine_threadsafe(recorder.stop(), _main_loop)
     return {"status": "ok"}
 
 
