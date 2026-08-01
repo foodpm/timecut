@@ -104,10 +104,10 @@ docker load -i timecut-amd64.tar   # 按实际下载的文件名调整
 
 **3. 修改 compose 文件中的镜像版本**
 
-按上文「步骤一」准备 `docker-compose.yml`、`go2rtc.yaml`、`.env` 后，把 `docker-compose.yml` 里的镜像改为与下载版本一致：
+按上文「步骤一」准备 `docker-compose.yml`、`go2rtc.yaml`、`.env` 后，把 `docker-compose.yml` 里的镜像改为与下载版本一致（**不带 `v` 前缀**）：
 
 ```yaml
-image: ghcr.io/foodpm/timecut:v0.2.0   # 替换为下载时对应的版本号
+image: ghcr.io/foodpm/timecut:0.3.1   # 替换为下载时对应的版本号，如 0.3.1
 ```
 
 **4. 启动**
