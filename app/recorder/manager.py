@@ -116,11 +116,9 @@ class RecorderManager:
             "-timeout", "15000000",  # socket I/O 超时 15 秒（微秒，防瞬时卡顿误判断流）
             "-use_wallclock_as_timestamps", "1",
             "-i", stream_url,
-            "-c:v", "libx264",
-            "-preset", "ultrafast",
-            "-crf", "28",
-            "-c:a", "aac",
-            "-b:a", "64k",
+            # 复用 go2rtc 转码后的 H264/AAC，直接封装不转码，降低 NAS CPU 负担、减少断流
+            "-c:v", "copy",
+            "-c:a", "copy",
             "-movflags", "+faststart",
             "-f", "segment",
             "-segment_time", str(seg_sec),
