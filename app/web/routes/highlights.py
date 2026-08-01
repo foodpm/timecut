@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse, JSONResponse
 
 from database import get_session, Highlight
 from config import settings
+from highlighter.job import job
 
 logger = logging.getLogger("timecut.api")
 
@@ -20,6 +21,12 @@ _trigger_highlight_callback = None
 def register_highlight_callback(callback):
     global _trigger_highlight_callback
     _trigger_highlight_callback = callback
+
+
+@router.get("/job")
+def get_highlight_job():
+    """返回当前精华视频生成任务的进度与日志"""
+    return job.to_dict()
 
 
 @router.get("")
@@ -142,12 +149,14 @@ async def trigger_highlight():
     """手动触发精华检测：分析最近一个有录像的日期（后台执行，立即返回）"""
     if not _trigger_highlight_callback:
         return {"status": "error", "message": "精华检测未注册"}
+    if job.running:
+        return {"status": "error", "message": "已有任务正在生成中，请稍后再试"}
     date = _find_latest_recording_date()
     if not date:
         return {"status": "error", "message": "没有可用的录像，无法生成精华视频"}
     import asyncio
     asyncio.create_task(_trigger_highlight_callback(date))
-    return {"status": "ok", "message": f"已开始生成 {date} 的精华视频，请稍后刷新查看"}
+    return {"status": "ok", "message": f"已开始生成 {date} 的精华视频，可查看实时进度"}
 
 
 def _find_latest_recording_date() -> str | None:

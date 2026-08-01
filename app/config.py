@@ -32,6 +32,8 @@ class Settings(BaseSettings):
     ai_model: str = "qwen-vl-plus"
     ai_api_key: str = ""
     ai_max_segments: int = 20
+    # ── 大模型日记 ──
+    diary_enabled: bool = False
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 

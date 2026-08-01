@@ -61,6 +61,15 @@ class SystemConfig(Base):
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
 
+class Diary(Base):
+    """某一天的大模型日记（内容由 AI 根据当天录像分析生成）"""
+    __tablename__ = "diary"
+    id = Column(Integer, primary_key=True)
+    date = Column(String(16), unique=True, nullable=False, index=True)
+    content = Column(Text, default="")
+    created_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+
 def get_engine():
     db_path = settings.db_path
     db_path.parent.mkdir(parents=True, exist_ok=True)

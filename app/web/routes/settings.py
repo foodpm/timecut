@@ -57,6 +57,8 @@ class SettingsUpdate(BaseModel):
     ai_model: str | None = None
     ai_api_key: str | None = None
     ai_max_segments: int | None = None
+    # ── 日记 ──
+    diary_enabled: bool | None = None
 
 
 class AITestRequest(BaseModel):
@@ -85,6 +87,7 @@ def get_settings():
         "ai_model": settings.ai_model,
         "ai_api_key": settings.ai_api_key,
         "ai_max_segments": settings.ai_max_segments,
+        "diary_enabled": settings.diary_enabled,
     }
 
 
@@ -286,6 +289,9 @@ def update_settings(data: SettingsUpdate):
     if data.ai_max_segments is not None:
         settings.ai_max_segments = max(1, data.ai_max_segments)
         changes["ai_max_segments"] = settings.ai_max_segments
+    if data.diary_enabled is not None:
+        settings.diary_enabled = data.diary_enabled
+        changes["diary_enabled"] = data.diary_enabled
     _persist_settings(changes)
     return {"status": "ok"}
 

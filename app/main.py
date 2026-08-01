@@ -151,7 +151,7 @@ def trigger_delete_camera():
     return {"status": "ok"}
 
 
-from web.routes import cameras_router, recordings_router, highlights_router, settings_router
+from web.routes import cameras_router, recordings_router, highlights_router, settings_router, diary_router
 from web.routes.settings import register_restart_callback, register_delete_camera_callback
 from web.routes.highlights import register_highlight_callback
 from web.routes.recordings import register_control_callback
@@ -172,6 +172,7 @@ app.include_router(cameras_router)
 app.include_router(recordings_router)
 app.include_router(highlights_router)
 app.include_router(settings_router)
+app.include_router(diary_router)
 
 
 @app.get("/api/health")
