@@ -15,42 +15,15 @@ logger = logging.getLogger("timecut.api")
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
-# 配置字段与 .env 环境变量名映射
-_ENV_MAP = {
-    "camera_name": "CAMERA_NAME",
-    "camera_rtsp_url": "CAMERA_RTSP_URL",
-    "recording_retention_days": "RECORDING_RETENTION_DAYS",
-    "recording_segment_minutes": "RECORDING_SEGMENT_MINUTES",
-    "recording_interval_minutes": "RECORDING_INTERVAL_MINUTES",
-    "recording_start_time": "RECORDING_START_TIME",
-    "recording_end_time": "RECORDING_END_TIME",
-    "highlight_duration_minutes": "HIGHLIGHT_DURATION_MINUTES",
-    "highlight_enabled": "HIGHLIGHT_ENABLED",
-    "highlight_schedule_time": "HIGHLIGHT_SCHEDULE_TIME",
-    "detection_sensitivity": "DETECTION_SENSITIVITY",
-    "recording_enabled": "RECORDING_ENABLED",
-}
-
 
 def persist_recording_state(enabled: bool):
     """持久化录制开关状态"""
-    settings.recording_enabled = enabled
-    _persist_settings({"recording_enabled": enabled})
+    settings.update_persisted({"recording_enabled": enabled})
 
 
 def _persist_settings(changes: dict):
-    """将配置写入 .env 文件（本地开发生效；Docker 内 .env 不存在则忽略）"""
-    try:
-        from dotenv import set_key
-        env_path = Path(".env")
-        if not env_path.exists():
-            return
-        for key, value in changes.items():
-            env_var = _ENV_MAP.get(key)
-            if env_var:
-                set_key(str(env_path), env_var, str(value))
-    except Exception as e:
-        logger.warning(f"持久化配置到 .env 失败: {e}")
+    """将配置持久化到数据卷中的 settings.json（容器重启后仍生效）"""
+    settings.update_persisted(changes)
 
 _restart_callback = None
 _delete_camera_callback = None

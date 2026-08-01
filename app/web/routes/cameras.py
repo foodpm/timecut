@@ -61,6 +61,10 @@ def update_camera(camera_id: int, data: CameraUpdate):
         if data.enabled is not None:
             cam.enabled = data.enabled
         session.commit()
+        settings.update_persisted({
+            "camera_name": cam.name,
+            "camera_rtsp_url": cam.rtsp_url,
+        })
         return {"status": "ok", "id": camera_id}
     finally:
         session.close()

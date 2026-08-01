@@ -63,29 +63,7 @@ cp go2rtc.yaml.example go2rtc.yaml
 cp .env.example .env
 ```
 
-**2. 配置摄像头**（编辑 `go2rtc.yaml`）
-
-```yaml
-streams:
-  # 普通 RTSP 摄像头
-  camera1:
-    - rtsp://user:password@192.168.1.100:554/stream
-  # H.264 转码流（供浏览器播放，保留即可）
-  camera1_h264:
-    - ffmpeg:camera1#video=h264#audio=aac#width=1280#height=720
-```
-
-**3. 配置录像策略**（编辑 `.env`）
-
-```bash
-# 摄像头 RTSP 地址（Docker 内部 go2rtc 服务名，与 go2rtc.yaml 流名对应）
-CAMERA_RTSP_URL=rtsp://go2rtc:8554/camera1_h264
-# 录像保留天数 / 分段时长
-RECORDING_RETENTION_DAYS=7
-RECORDING_SEGMENT_MINUTES=1
-```
-
-**4. 启动服务**（自动拉取预构建镜像）
+**2. 启动服务**（自动拉取预构建镜像）
 
 ```bash
 docker compose up -d
@@ -94,9 +72,51 @@ docker compose up -d
 > 首次会自动拉取 `ghcr.io/foodpm/timecut:latest` 与 go2rtc 镜像，无需本地构建。
 > 如需自行编译镜像，将 `docker-compose.yml` 中 `image:` 一行注释、取消 `build:` 注释，再执行 `docker compose up -d --build`。
 
-**5. 访问管理面板**
+**3. 访问管理面板**
 
 打开浏览器访问 `http://你的NAS地址:8090`
+
+> 摄像头、录像策略、精华检测等配置均可在 Web 管理面板的「系统设置」中完成，**无需手动编辑配置文件**。
+
+### 离线部署（国内 / 无外网环境）
+
+> 国内拉取 ghcr.io 镜像经常超时，可直接从 GitHub Releases 下载镜像包，全程无需访问 ghcr.io。
+> go2rtc 镜像来自 Docker Hub，一般可正常拉取；如遇拉取慢，可给 Docker 配置国内镜像加速器。
+
+**1. 下载镜像包**
+
+到 [Releases](https://github.com/foodpm/timecut/releases) 页面，按 NAS 的 CPU 架构下载对应文件：
+
+| NAS 架构 | 下载文件 |
+|---------|---------|
+| x86_64（Intel/AMD，群晖、威联通、绿联的大部分机型） | `timecut-amd64.tar` |
+| ARM（群晖/威联通等 ARM 机型） | `timecut-arm64.tar` |
+
+> 不确定架构时，在 NAS 终端执行 `uname -m`：输出 `x86_64` 选 amd64，输出 `aarch64` 选 arm64。
+
+**2. 上传并导入镜像**
+
+将 tar 文件上传到 NAS，然后执行：
+
+```bash
+docker load -i timecut-amd64.tar   # 按实际下载的文件名调整
+```
+
+**3. 修改 compose 文件中的镜像版本**
+
+按上文「步骤一」准备 `docker-compose.yml`、`go2rtc.yaml`、`.env` 后，把 `docker-compose.yml` 里的镜像改为与下载版本一致：
+
+```yaml
+image: ghcr.io/foodpm/timecut:v0.2.0   # 替换为下载时对应的版本号
+```
+
+**4. 启动**
+
+```bash
+docker compose up -d
+```
+
+浏览器访问 `http://你的NAS地址:8090`
 
 ### 本地开发
 

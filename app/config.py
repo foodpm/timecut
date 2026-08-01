@@ -1,7 +1,11 @@
 """TimeCut 配置管理"""
 
+import json
+import logging
 from pathlib import Path
 from pydantic_settings import BaseSettings
+
+logger = logging.getLogger("timecut.config")
 
 
 class Settings(BaseSettings):
@@ -41,5 +45,44 @@ class Settings(BaseSettings):
     def log_dir(self) -> Path:
         return Path(self.data_dir) / "logs"
 
+    @property
+    def settings_file(self) -> Path:
+        """面板配置持久化文件（位于数据卷内，容器重启后保留）"""
+        return Path(self.data_dir) / "settings.json"
+
+    def load_persisted(self) -> None:
+        """启动时加载面板持久化的配置，覆盖 .env / 环境变量"""
+        if not self.settings_file.exists():
+            return
+        try:
+            data = json.loads(self.settings_file.read_text(encoding="utf-8"))
+            for key, value in data.items():
+                if hasattr(self, key):
+                    setattr(self, key, value)
+            logger.info(f"已加载面板持久化配置: {sorted(data.keys())}")
+        except Exception as e:
+            logger.warning(f"加载持久化配置失败: {e}")
+
+    def update_persisted(self, changes: dict) -> None:
+        """更新配置并写入持久化文件"""
+        data = {}
+        if self.settings_file.exists():
+            try:
+                data = json.loads(self.settings_file.read_text(encoding="utf-8"))
+            except Exception:
+                data = {}
+        for key, value in changes.items():
+            if hasattr(self, key):
+                setattr(self, key, value)
+                data[key] = value
+        try:
+            self.settings_file.parent.mkdir(parents=True, exist_ok=True)
+            self.settings_file.write_text(
+                json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+        except Exception as e:
+            logger.warning(f"持久化配置写入失败: {e}")
+
 
 settings = Settings()
+settings.load_persisted()

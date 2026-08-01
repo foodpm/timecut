@@ -46,6 +46,18 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
+      # 导出镜像为 tar，作为 Release 附件，方便国内/离线用户 docker load 部署
+      - name: Export image tarballs
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          set -euxo pipefail
+          IMAGE="ghcr.io/${{ github.repository }}:${{ github.ref_name }}"
+          mkdir -p artifacts
+          for arch in amd64 arm64; do
+            docker pull --platform "linux/$arch" "$IMAGE"
+            docker save "$IMAGE" -o "artifacts/timecut-${arch}.tar"
+          done
+
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         env:
@@ -54,5 +66,6 @@ jobs:
           gh release create "$GITHUB_REF_NAME" \
             --generate-notes \
             --title "TimeCut $GITHUB_REF_NAME" \
-            --notes "Docker 镜像: \`ghcr.io/foodpm/timecut:$GITHUB_REF_NAME\`（支持 amd64 / arm64）\n\n部署方式见 README。" \
+            --notes "Docker 镜像: \`ghcr.io/foodpm/timecut:$GITHUB_REF_NAME\`（支持 amd64 / arm64）\n\n离线部署: 下载对应架构的 \`timecut-<arch>.tar\`，执行 \`docker load -i timecut-<arch>.tar\` 导入镜像，再将 docker-compose.yml 中 \`image: ghcr.io/foodpm/timecut:latest\` 改为 \`image: ghcr.io/foodpm/timecut:$GITHUB_REF_NAME\` 后 \`docker compose up -d\`。\n\n普通部署方式见 README。" \
+            artifacts/*.tar \
             || true
