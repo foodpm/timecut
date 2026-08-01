@@ -27,7 +27,7 @@ class HighlightClipper:
         if not segments:
             logger.warning("没有运动片段可剪辑")
             return None
-        selected = self._select_segments(segments)
+        selected = self._select_segments(segments, video_files)
         if not selected:
             logger.warning("筛选后无可用片段")
             return None
@@ -38,24 +38,52 @@ class HighlightClipper:
         return self._clip_and_concat(selected, output_path)
 
     def _select_segments(
-        self, segments: list[tuple[MotionSegment, Path]]
+        self, segments: list[tuple[MotionSegment, Path]], video_files: list[Path]
     ) -> list[tuple[MotionSegment, Path]]:
         if not segments:
             return []
+        # 计算每个源文件在当天录像序列中的全局时间偏移（文件按时间顺序排列）
+        offset_map: dict[Path, float] = {}
+        total_offset = 0.0
+        for vf in video_files:
+            offset_map[vf] = total_offset
+            total_offset += self._get_duration(vf)
+
+        def global_start(item: tuple[MotionSegment, Path]) -> float:
+            """片段在当天录像中的真实发生时间"""
+            seg, src = item
+            return offset_map.get(src, 0.0) + seg.start
+
+        # 按运动分数从高到低挑选，凑满目标时长
         sorted_segs = sorted(segments, key=lambda s: s[0].score, reverse=True)
         selected = []
-        total = 0.0
+        sel_total = 0.0
         for seg, src in sorted_segs:
-            if total + seg.duration > self.target_duration:
-                remaining = self.target_duration - total
+            if sel_total + seg.duration > self.target_duration:
+                remaining = self.target_duration - sel_total
                 if remaining >= 10:
                     selected.append((MotionSegment(seg.start, seg.start + remaining, seg.score), src))
-                    total = self.target_duration
+                    sel_total = self.target_duration
                 break
             selected.append((seg, src))
-            total += seg.duration
-        selected.sort(key=lambda s: s[0].start)
+            sel_total += seg.duration
+        # 按当天真实发生时间排序，保证精华视频按时间顺序播放
+        selected.sort(key=global_start)
         return selected
+
+    @staticmethod
+    def _get_duration(video_path: Path) -> float:
+        try:
+            result = subprocess.run(
+                ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                 "-of", "default=noprint_wrappers=1:nokey=1", str(video_path)],
+                capture_output=True, text=True, timeout=30,
+            )
+            if result.stdout:
+                return float(result.stdout.strip())
+        except Exception:
+            pass
+        return 0.0
 
     def _get_file_for_segment(
         self, seg: MotionSegment, video_files: list[Path]
