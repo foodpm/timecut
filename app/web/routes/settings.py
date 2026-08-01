@@ -51,6 +51,12 @@ class SettingsUpdate(BaseModel):
     highlight_enabled: bool | None = None
     highlight_schedule_time: str | None = None
     detection_sensitivity: int | None = None
+    # ── 大模型识别 ──
+    ai_enabled: bool | None = None
+    ai_base_url: str | None = None
+    ai_model: str | None = None
+    ai_api_key: str | None = None
+    ai_max_segments: int | None = None
 
 
 @router.get("")
@@ -67,6 +73,11 @@ def get_settings():
         "highlight_enabled": settings.highlight_enabled,
         "highlight_schedule_time": settings.highlight_schedule_time,
         "detection_sensitivity": settings.detection_sensitivity,
+        "ai_enabled": settings.ai_enabled,
+        "ai_base_url": settings.ai_base_url,
+        "ai_model": settings.ai_model,
+        "ai_api_key": settings.ai_api_key,
+        "ai_max_segments": settings.ai_max_segments,
     }
 
 
@@ -253,6 +264,21 @@ def update_settings(data: SettingsUpdate):
     if data.detection_sensitivity is not None:
         settings.detection_sensitivity = data.detection_sensitivity
         changes["detection_sensitivity"] = data.detection_sensitivity
+    if data.ai_enabled is not None:
+        settings.ai_enabled = data.ai_enabled
+        changes["ai_enabled"] = data.ai_enabled
+    if data.ai_base_url is not None:
+        settings.ai_base_url = data.ai_base_url.strip()
+        changes["ai_base_url"] = settings.ai_base_url
+    if data.ai_model is not None:
+        settings.ai_model = data.ai_model.strip()
+        changes["ai_model"] = settings.ai_model
+    if data.ai_api_key is not None:
+        settings.ai_api_key = data.ai_api_key.strip()
+        changes["ai_api_key"] = settings.ai_api_key
+    if data.ai_max_segments is not None:
+        settings.ai_max_segments = max(1, data.ai_max_segments)
+        changes["ai_max_segments"] = settings.ai_max_segments
     _persist_settings(changes)
     return {"status": "ok"}
 

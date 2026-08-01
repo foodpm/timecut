@@ -10,6 +10,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from config import settings
 from database import get_session, Highlight, Recording
 from .detector import MotionDetector
+from .ai_selector import AISelector
 from .clipper import HighlightClipper
 
 logger = logging.getLogger("timecut.scheduler")
@@ -68,6 +69,9 @@ class HighlightScheduler:
             logger.info("未检测到运动，跳过精华生成")
             return
         logger.info(f"共检测到 {len(all_segments)} 个运动片段")
+        if settings.ai_enabled:
+            logger.info("启用大模型识别精华片段")
+            all_segments = AISelector().score_segments(all_segments)
         output = self._clipper.create_highlight(
             video_files=video_files, segments=all_segments,
         )

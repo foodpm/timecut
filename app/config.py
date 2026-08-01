@@ -26,6 +26,12 @@ class Settings(BaseSettings):
     go2rtc_url: str = "http://localhost:1984"
     go2rtc_config_path: str = "go2rtc.yaml"
     recording_enabled: bool = True
+    # ── 大模型识别精华片段 ──
+    ai_enabled: bool = False
+    ai_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    ai_model: str = "qwen-vl-plus"
+    ai_api_key: str = ""
+    ai_max_segments: int = 20
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 

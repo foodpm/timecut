@@ -418,6 +418,22 @@ function refreshLive() {
                <span class="text-xs text-timecut-400 w-8 text-right" id="sens-value">${s.detection_sensitivity}</span>
              </div>
            </div>
+           <div class="pt-4 border-t border-timecut-700">
+             <div class="text-xs font-semibold text-timecut-300 mb-3">精华筛选方式</div>
+             <div class="flex items-center gap-5 mb-3">
+               <label class="flex items-center gap-2 text-xs text-timecut-300 cursor-pointer"><input type="radio" name="s-ai-mode" id="s-ai-off" class="accent-accent-500" ${!s.ai_enabled ? 'checked' : ''} onchange="toggleAiConfig()">系统自动（运动检测）</label>
+               <label class="flex items-center gap-2 text-xs text-timecut-300 cursor-pointer"><input type="radio" name="s-ai-mode" id="s-ai-on" class="accent-accent-500" ${s.ai_enabled ? 'checked' : ''} onchange="toggleAiConfig()">大模型识别</label>
+             </div>
+             <div id="ai-config" class="space-y-3 ${s.ai_enabled ? '' : 'hidden'}">
+               <div><label class="block text-xs text-timecut-500 mb-1.5">API 地址（OpenAI 兼容）</label><input id="s-ai-url" class="w-full bg-timecut-900 border border-timecut-700 rounded-lg px-3 py-2 text-sm text-timecut-200 focus:outline-none focus:border-accent-500" value="${s.ai_base_url || ''}" placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1"></div>
+               <div class="flex gap-3">
+                 <div class="flex-1"><label class="block text-xs text-timecut-500 mb-1.5">模型 ID</label><input id="s-ai-model" class="w-full bg-timecut-900 border border-timecut-700 rounded-lg px-3 py-2 text-sm text-timecut-200 focus:outline-none focus:border-accent-500" value="${s.ai_model || ''}" placeholder="qwen-vl-plus"></div>
+                 <div class="flex-1"><label class="block text-xs text-timecut-500 mb-1.5">最大分析片段数</label><input id="s-ai-max" type="number" min="1" max="50" class="w-full bg-timecut-900 border border-timecut-700 rounded-lg px-3 py-2 text-sm text-timecut-200 focus:outline-none focus:border-accent-500" value="${s.ai_max_segments ?? 20}"></div>
+               </div>
+               <div><label class="block text-xs text-timecut-500 mb-1.5">API Key</label><input id="s-ai-key" type="password" class="w-full bg-timecut-900 border border-timecut-700 rounded-lg px-3 py-2 text-sm text-timecut-200 focus:outline-none focus:border-accent-500" value="${s.ai_api_key || ''}" placeholder="sk-..."></div>
+               <div class="text-[11px] text-timecut-500 leading-relaxed">大模型模式：对运动片段抽帧，调用多模态模型判断画面价值（人/车/包裹等），只分析分数最高的片段以控制成本。支持 OpenAI 兼容接口，如通义千问 qwen-vl、豆包等。</div>
+             </div>
+           </div>
          </div>
        </div>
  
@@ -438,6 +454,11 @@ function refreshLive() {
   const enabled = !btn.classList.contains('bg-accent-600');
   btn.className = `btn relative w-12 h-6 rounded-full transition-colors ${enabled ? 'bg-accent-600' : 'bg-timecut-600'}`;
   btn.querySelector('span').className = `absolute left-0 top-0.5 w-5 h-5 bg-white rounded-full transition-transform ${enabled ? 'translate-x-[26px]' : 'translate-x-0.5'}`;
+};
+
+window.toggleAiConfig = function() {
+  const cfg = document.getElementById('ai-config');
+  if (cfg) cfg.classList.toggle('hidden', !document.getElementById('s-ai-on').checked);
 };
  
  window.useGo2RtcStream = async function(rtsp) {
@@ -519,6 +540,11 @@ window.saveSettings = async function() {
      highlight_duration_minutes: parseInt(document.getElementById('s-hl-duration')?.value),
      highlight_schedule_time: document.getElementById('s-hl-time')?.value,
      detection_sensitivity: parseInt(document.getElementById('s-sensitivity')?.value),
+     ai_enabled: document.getElementById('s-ai-on')?.checked,
+     ai_base_url: document.getElementById('s-ai-url')?.value,
+     ai_model: document.getElementById('s-ai-model')?.value,
+     ai_api_key: document.getElementById('s-ai-key')?.value,
+     ai_max_segments: parseInt(document.getElementById('s-ai-max')?.value) || 20,
    };
    try {
      await API.put('/api/settings', data);
