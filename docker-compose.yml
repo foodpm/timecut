@@ -1,0 +1,41 @@
+version: "3.8"
+
+services:
+  # ── RTSP 流管理 ──
+  go2rtc:
+    image: alexxit/go2rtc:latest
+    container_name: timecut-go2rtc
+    restart: unless-stopped
+    ports:
+      - "1984:1984"       # go2rtc Web API
+      - "8888:8888"       # HLS 直播
+    volumes:
+      - ./go2rtc.yaml:/config/go2rtc.yaml:ro
+      - ./storage/go2rtc:/config
+    networks:
+      - timecut-net
+
+  # ── 核心应用（录像 + 精华检测 + Web UI）──
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: timecut-app
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-8090}:8090"
+    volumes:
+      - ./storage:/data
+    environment:
+      - TZ=Asia/Shanghai
+      - DATA_DIR=/data
+    env_file:
+      - .env
+    depends_on:
+      - go2rtc
+    networks:
+      - timecut-net
+
+networks:
+  timecut-net:
+    driver: bridge

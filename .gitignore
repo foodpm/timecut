@@ -1,0 +1,36 @@
+ # Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Virtual Environment
+.venv/
+venv/
+env/
+
+# Environment
+.env
+
+# Local data
+data/
+dev-data/
+
+# go2rtc config with credentials
+go2rtc.yaml
+
+# Storage (mounted volumes)
+storage/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

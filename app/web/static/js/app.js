@@ -1,0 +1,427 @@
+ /**
+  * TimeCut 前端 SPA 引擎
+  * 纯 Vanilla JS 单页应用
+  */
+ 
+ // ── API 客户端 ──
+ const API = {
+   async get(path) {
+     const res = await fetch(path);
+     if (!res.ok) throw new Error(`GET ${path} ${res.status}`);
+     return res.json();
+   },
+   async put(path, data) {
+     const res = await fetch(path, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+     if (!res.ok) throw new Error(`PUT ${path} ${res.status}`);
+     return res.json();
+   },
+   async post(path) {
+     const res = await fetch(path, { method: 'POST' });
+     if (!res.ok) throw new Error(`POST ${path} ${res.status}`);
+     return res.json();
+   },
+   async del(path) {
+     const res = await fetch(path, { method: 'DELETE' });
+     if (!res.ok) throw new Error(`DELETE ${path} ${res.status}`);
+     return res.json();
+   }
+ };
+ 
+ // ── Toast 通知 ──
+ function toast(msg, type = 'info') {
+   const c = document.getElementById('toast-container');
+   const el = document.createElement('div');
+   const colors = { info: 'bg-accent-600', success: 'bg-green-600', error: 'bg-red-600', warning: 'bg-yellow-600' };
+   el.className = `${colors[type] || colors.info} text-white px-4 py-2.5 rounded-lg shadow-lg text-sm flex items-center gap-2 animate__fadeIn`;
+   el.innerHTML = msg;
+   c.appendChild(el);
+   setTimeout(() => { el.style.opacity = '0'; el.style.transition = 'opacity 0.3s'; setTimeout(() => el.remove(), 300); }, 3000);
+ }
+ 
+ // ── 导航 ──
+ const PAGES = ['dashboard', 'live', 'recordings', 'highlights', 'settings'];
+ const PAGE_TITLES = { dashboard: '仪表盘', live: '实时画面', recordings: '录像回看', highlights: '精华视频', settings: '系统设置' };
+ 
+ function navigate(page) {
+   document.querySelectorAll('.nav-link').forEach(el => el.classList.remove('active'));
+   document.querySelectorAll('.page').forEach(el => el.classList.remove('active'));
+   const link = document.querySelector(`[data-page="${page}"]`);
+   if (link) link.classList.add('active');
+   document.getElementById('page-title').textContent = PAGE_TITLES[page] || page;
+   renderPage(page);
+ }
+ 
+ window.addEventListener('hashchange', () => {
+   const page = location.hash.slice(1) || 'dashboard';
+   if (PAGES.includes(page)) navigate(page);
+ });
+ 
+ // ── 时钟 ──
+ function updateClock() {
+   document.getElementById('clock').textContent = new Date().toLocaleString('zh-CN', { hour12: false });
+ }
+ setInterval(updateClock, 1000);
+ 
+ // ── 系统状态 ──
+ async function updateStatus() {
+   try {
+     const h = await API.get('/api/health');
+     const dot = document.getElementById('status-dot');
+     const txt = document.getElementById('status-text');
+     if (h.status === 'ok') {
+       dot.className = 'w-2 h-2 rounded-full bg-green-500';
+       txt.textContent = h.recording ? '录制中' : '已就绪';
+     } else {
+       dot.className = 'w-2 h-2 rounded-full bg-yellow-500';
+       txt.textContent = '异常';
+     }
+   } catch { document.getElementById('status-dot').className = 'w-2 h-2 rounded-full bg-red-500'; document.getElementById('status-text').textContent = '离线'; }
+ }
+ setInterval(updateStatus, 10000);
+ 
+ // ── 页面渲染器 ──
+ function renderPage(page) {
+   const content = document.getElementById('page-content');
+   const renderers = { dashboard: renderDashboard, live: renderLive, recordings: renderRecordings, highlights: renderHighlights, settings: renderSettings };
+   if (renderers[page]) renderers[page](content);
+ }
+ 
+ // ══════════ 仪表盘 ══════════
+ async function renderDashboard(el) {
+   el.innerHTML = '<div class="text-timecut-400 text-center py-20"><div class="animate-spin w-8 h-8 border-2 border-accent-500 border-t-transparent rounded-full mx-auto mb-3"></div>加载中...</div>';
+   try {
+     const [health, stats, highlights, settings] = await Promise.all([
+       API.get('/api/health'), API.get('/api/recordings/stats'), API.get('/api/highlights?page_size=5'), API.get('/api/settings'),
+     ]);
+     el.innerHTML = `
+       <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+         <div class="stat-card bg-timecut-800 rounded-xl p-5 border border-timecut-700">
+           <div class="text-timecut-500 text-xs mb-1">录制状态</div>
+           <div class="text-2xl font-bold text-timecut-100">${health.recording ? '<span class="text-green-400">●</span> 录制中' : '<span class="text-yellow-400">●</span> 已停止'}</div>
+         </div>
+         <div class="stat-card bg-timecut-800 rounded-xl p-5 border border-timecut-700">
+           <div class="text-timecut-500 text-xs mb-1">录像总数</div>
+           <div class="text-2xl font-bold text-timecut-100">${stats.total_recordings}</div>
+           <div class="text-xs text-timecut-500 mt-1">占用 ${stats.total_size_gb} GB · 保留 ${stats.retention_days} 天</div>
+         </div>
+         <div class="stat-card bg-timecut-800 rounded-xl p-5 border border-timecut-700">
+           <div class="text-timecut-500 text-xs mb-1">精华视频</div>
+           <div class="text-2xl font-bold text-timecut-100">${highlights.total}</div>
+           <div class="text-xs text-timecut-500 mt-1">${settings.highlight_enabled ? '自动剪辑已开启' : '自动剪辑已关闭'}</div>
+         </div>
+       </div>
+       <div class="bg-timecut-800 rounded-xl p-5 border border-timecut-700">
+         <h3 class="text-sm font-semibold text-timecut-300 mb-4">摄像头信息</h3>
+         <div class="flex items-center justify-between py-2 border-b border-timecut-700">
+           <span class="text-timecut-400">名称</span>
+           <span class="text-timecut-200">${settings.camera_name || '未设置'}</span>
+         </div>
+         <div class="flex items-center justify-between py-2 border-b border-timecut-700">
+           <span class="text-timecut-400">RTSP 地址</span>
+           <span class="text-timecut-200 font-mono text-xs">${settings.camera_rtsp_url || '未配置'}</span>
+         </div>
+         <div class="flex items-center justify-between py-2">
+           <span class="text-timecut-400">精华检测时间</span>
+           <span class="text-timecut-200">每天 ${settings.highlight_schedule_time}</span>
+         </div>
+       </div>
+       ${highlights.items?.length ? `
+       <div class="mt-6">
+         <h3 class="text-sm font-semibold text-timecut-300 mb-3">最近精华</h3>
+         <div class="video-grid">
+           ${highlights.items.map(h => `
+             <div class="bg-timecut-800 rounded-xl border border-timecut-700 overflow-hidden">
+               <div class="p-4">
+                 <div class="text-sm font-medium text-timecut-200">${h.date}</div>
+                 <div class="text-xs text-timecut-500 mt-1">${h.duration_min} 分钟 · ${h.clip_count} 个片段</div>
+               </div>
+             </div>
+           `).join('')}
+         </div>
+       </div>` : ''}
+     `;
+   } catch (e) { el.innerHTML = `<div class="text-red-400 text-center py-20">加载失败: ${e.message}</div>`; }
+ }
+ 
+ // ══════════ 实时画面 ══════════
+async function loadGo2RtcPlayer() {
+  const player = document.getElementById('live-player');
+  if (!player) return;
+
+  try {
+    // 动态加载本地 video-stream 组件（同源加载，避免跨域限制）
+    if (!window.customElements.get('video-stream')) {
+      await import('/js/video-stream.js');
+    }
+    // 组件就绪后再动态创建元素(必须用 JS 赋值 src,触发组件连接逻辑)
+    const host = window.location.hostname || 'localhost';
+    const vs = document.createElement('video-stream');
+    vs.style.display = 'block';
+    vs.style.width = '100%';
+    vs.style.height = '100%';
+    vs.mode = 'mse';
+    vs.background = false;
+    vs.src = `ws://${host}:1984/api/ws?src=xiaomi_camera_h264`;
+    player.innerHTML = '';
+    player.appendChild(vs);
+  } catch (e) {
+    player.innerHTML = `<div class="w-full h-full flex items-center justify-center text-red-400 text-sm">加载失败: ${e.message}</div>`;
+  }
+}
+
+function renderLive(el) {
+  el.innerHTML = `
+    <div class="max-w-4xl mx-auto">
+      <div class="bg-timecut-800 rounded-xl border border-timecut-700 overflow-hidden">
+        <div class="aspect-video bg-timecut-900 relative" id="live-player">
+          <div class="absolute inset-0 w-full h-full flex items-center justify-center text-timecut-500 text-sm">正在加载实时画面...</div>
+        </div>
+        <div class="p-3 border-t border-timecut-700 flex justify-between items-center">
+          <span class="text-xs text-timecut-500">go2rtc 实时流</span>
+          <button onclick="refreshLive()" class="btn text-xs bg-timecut-700 hover:bg-timecut-600 text-timecut-300 px-3 py-1.5 rounded-lg">刷新</button>
+        </div>
+      </div>
+    </div>
+  `;
+  loadGo2RtcPlayer();
+}
+
+function refreshLive() {
+  toast('画面刷新中...', 'info');
+  renderLive(document.getElementById('page-content'));
+}
+ 
+ // ══════════ 录像回看 ══════════
+ async function renderRecordings(el) {
+   el.innerHTML = '<div class="text-timecut-400 text-center py-20"><div class="animate-spin w-8 h-8 border-2 border-accent-500 border-t-transparent rounded-full mx-auto mb-3"></div>加载中...</div>';
+   try {
+     const [recs, dates] = await Promise.all([
+       API.get('/api/recordings?page_size=100'), API.get('/api/recordings/dates'),
+     ]);
+     el.innerHTML = `
+       <div class="mb-4 flex items-center gap-3 flex-wrap">
+         <h3 class="text-sm font-semibold text-timecut-300">录像文件</h3>
+         <span class="text-xs text-timecut-500">共 ${recs.total} 个文件</span>
+         <div class="flex gap-2 ml-auto flex-wrap">
+           ${(dates.dates || []).slice(0, 14).map(d => `<button onclick="filterDate('${d}')" class="btn text-xs bg-timecut-800 hover:bg-timecut-700 text-timecut-400 px-3 py-1.5 rounded-lg border border-timecut-700">${d}</button>`).join('')}
+         </div>
+       </div>
+       ${recs.items?.length ? `
+       <div class="bg-timecut-800 rounded-xl border border-timecut-700 overflow-hidden">
+         <table class="w-full text-sm">
+           <thead><tr class="border-b border-timecut-700 text-timecut-500 text-xs">
+             <th class="text-left py-3 px-4">时间</th>
+             <th class="text-right py-3 px-4">时长</th>
+             <th class="text-right py-3 px-4">大小</th>
+             <th class="text-right py-3 px-4">运动</th>
+           </tr></thead>
+           <tbody>${recs.items.map(r => `
+             <tr class="border-b border-timecut-700/50 hover:bg-timecut-700/30 cursor-pointer" onclick="playRecording(${r.id}, '${r.start_time ? new Date(r.start_time).toLocaleString('zh-CN', { hour12: false }) : ''}')">
+               <td class="py-2.5 px-4 text-timecut-200">${r.start_time ? new Date(r.start_time).toLocaleString('zh-CN', { hour12: false }) : '-'}</td>
+               <td class="py-2.5 px-4 text-right text-timecut-400">${r.duration ? Math.round(r.duration) + 's' : '-'}</td>
+               <td class="py-2.5 px-4 text-right text-timecut-400">${r.file_size_mb} MB</td>
+               <td class="py-2.5 px-4 text-right">${r.has_motion ? '<span class="text-green-400">●</span>' : '<span class="text-timecut-600">○</span>'}</td>
+             </tr>
+           `).join('')}</tbody>
+         </table>
+       </div>` : '<div class="text-timecut-500 text-center py-16 bg-timecut-800 rounded-xl border border-timecut-700"><svg class="w-12 h-12 mx-auto mb-3 text-timecut-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>暂无录像文件</div>'}
+     `;
+   } catch (e) { el.innerHTML = `<div class="text-red-400 text-center py-20">加载失败: ${e.message}</div>`; }
+ }
+ 
+ window.filterDate = async function(date) {
+   const el = document.getElementById('page-content');
+   el.innerHTML = '<div class="text-timecut-400 text-center py-20"><div class="animate-spin w-8 h-8 border-2 border-accent-500 border-t-transparent rounded-full mx-auto mb-3"></div>加载中...</div>';
+   try {
+     const recs = await API.get(`/api/recordings?date=${date}&page_size=100`);
+     el.innerHTML = `
+       <div class="mb-4 flex items-center gap-3"><button onclick="navigate('recordings')" class="btn text-xs bg-timecut-700 hover:bg-timecut-600 text-timecut-300 px-3 py-1.5 rounded-lg">← 返回</button><span class="text-sm text-timecut-300">${date}</span><span class="text-xs text-timecut-500">${recs.total} 个文件</span></div>
+       ${recs.items?.length ? `
+       <div class="bg-timecut-800 rounded-xl border border-timecut-700 overflow-hidden">
+         <table class="w-full text-sm">
+           <thead><tr class="border-b border-timecut-700 text-timecut-500 text-xs">
+             <th class="text-left py-3 px-4">时间</th><th class="text-right py-3 px-4">时长</th><th class="text-right py-3 px-4">大小</th>
+           </tr></thead>
+           <tbody>${recs.items.map(r => `
+             <tr class="border-b border-timecut-700/50 hover:bg-timecut-700/30 cursor-pointer" onclick="playRecording(${r.id}, '${r.start_time ? new Date(r.start_time).toLocaleString('zh-CN', { hour12: false }) : ''}')">
+               <td class="py-2.5 px-4 text-timecut-200">${r.start_time ? new Date(r.start_time).toLocaleString('zh-CN', { hour12: false }) : '-'}</td>
+               <td class="py-2.5 px-4 text-right text-timecut-400">${r.duration ? Math.round(r.duration) + 's' : '-'}</td>
+               <td class="py-2.5 px-4 text-right text-timecut-400">${r.file_size_mb} MB</td>
+             </tr>
+           `).join('')}</tbody>
+         </table>
+       </div>` : '<div class="text-timecut-500 text-center py-16">该日期无录像</div>'}
+     `;
+   } catch (e) { el.innerHTML = `<div class="text-red-400 text-center py-20">加载失败: ${e.message}</div>`; }
+ };
+ 
+ // ══════════ 精华视频 ══════════
+ async function renderHighlights(el) {
+   el.innerHTML = '<div class="text-timecut-400 text-center py-20"><div class="animate-spin w-8 h-8 border-2 border-accent-500 border-t-transparent rounded-full mx-auto mb-3"></div>加载中...</div>';
+   try {
+     const data = await API.get('/api/highlights?page_size=50');
+     el.innerHTML = `
+       <div class="mb-4 flex items-center gap-3">
+         <h3 class="text-sm font-semibold text-timecut-300">精华视频</h3>
+         <span class="text-xs text-timecut-500">共 ${data.total} 个</span>
+       </div>
+       ${data.items?.length ? `
+       <div class="video-grid">
+         ${data.items.map(h => `
+           <div class="bg-timecut-800 rounded-xl border border-timecut-700 overflow-hidden">
+             <div class="p-4">
+               <div class="flex items-center justify-between mb-3">
+                 <span class="text-sm font-medium text-timecut-200">${h.date}</span>
+                 <span class="text-xs text-timecut-500">${h.duration_min} 分钟</span>
+               </div>
+               <div class="text-xs text-timecut-500 mb-3">拼接 ${h.clip_count} 个片段 · ${h.file_size_mb} MB · ${h.strategy} 策略</div>
+               <div class="flex gap-2">
+                 <a href="/api/highlights/download/${h.id}" class="btn flex-1 text-center text-xs bg-accent-600 hover:bg-accent-500 text-white px-3 py-2 rounded-lg">下载</a>
+                 <button onclick="deleteHighlight(${h.id})" class="btn text-xs bg-red-600/20 hover:bg-red-600/30 text-red-400 px-3 py-2 rounded-lg">删除</button>
+               </div>
+             </div>
+           </div>
+         `).join('')}
+       </div>` : '<div class="text-timecut-500 text-center py-16 bg-timecut-800 rounded-xl border border-timecut-700"><svg class="w-12 h-12 mx-auto mb-3 text-timecut-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"/></svg>暂无精华视频</div>'}
+     `;
+   } catch (e) { el.innerHTML = `<div class="text-red-400 text-center py-20">加载失败: ${e.message}</div>`; }
+ }
+ 
+ window.deleteHighlight = async function(id) {
+   if (!confirm('确定删除这个精华视频？')) return;
+   try {
+     await API.del(`/api/highlights/${id}`);
+     toast('已删除', 'success');
+     renderHighlights(document.getElementById('page-content'));
+   } catch (e) { toast(`删除失败: ${e.message}`, 'error'); }
+ };
+ 
+ // ══════════ 系统设置 ══════════
+ async function renderSettings(el) {
+   el.innerHTML = '<div class="text-timecut-400 text-center py-20"><div class="animate-spin w-8 h-8 border-2 border-accent-500 border-t-transparent rounded-full mx-auto mb-3"></div>加载中...</div>';
+   try {
+     const s = await API.get('/api/settings');
+     el.innerHTML = `
+     <div class="max-w-2xl space-y-6">
+       <!-- 摄像头设置 -->
+       <div class="bg-timecut-800 rounded-xl p-5 border border-timecut-700">
+         <h3 class="text-sm font-semibold text-timecut-300 mb-4">摄像头设置</h3>
+         <div class="space-y-4">
+           <div><label class="block text-xs text-timecut-500 mb-1.5">摄像头名称</label><input id="s-name" class="w-full bg-timecut-900 border border-timecut-700 rounded-lg px-3 py-2 text-sm text-timecut-200 focus:outline-none focus:border-accent-500" value="${s.camera_name || ''}"></div>
+           <div><label class="block text-xs text-timecut-500 mb-1.5">RTSP 地址</label><input id="s-rtsp" class="w-full bg-timecut-900 border border-timecut-700 rounded-lg px-3 py-2 text-sm text-timecut-200 font-mono focus:outline-none focus:border-accent-500" value="${s.camera_rtsp_url || ''}" placeholder="rtsp://user:password@ip:554/stream"></div>
+         </div>
+       </div>
+ 
+       <!-- 录像设置 -->
+       <div class="bg-timecut-800 rounded-xl p-5 border border-timecut-700">
+         <h3 class="text-sm font-semibold text-timecut-300 mb-4">录像设置</h3>
+         <div class="space-y-4">
+           <div><label class="block text-xs text-timecut-500 mb-1.5">录像保留天数（超过此天数的旧录像自动删除）</label><input id="s-retention" type="number" min="1" max="365" class="w-32 bg-timecut-900 border border-timecut-700 rounded-lg px-3 py-2 text-sm text-timecut-200 focus:outline-none focus:border-accent-500" value="${s.recording_retention_days}"></div>
+           <div><label class="block text-xs text-timecut-500 mb-1.5">分段时长（分钟）</label><input id="s-segment" type="number" min="5" max="1440" class="w-32 bg-timecut-900 border border-timecut-700 rounded-lg px-3 py-2 text-sm text-timecut-200 focus:outline-none focus:border-accent-500" value="${s.recording_segment_minutes}"></div>
+         </div>
+       </div>
+ 
+       <!-- 精华设置 -->
+       <div class="bg-timecut-800 rounded-xl p-5 border border-timecut-700">
+         <h3 class="text-sm font-semibold text-timecut-300 mb-4">精华视频设置</h3>
+         <div class="space-y-4">
+           <div class="flex items-center gap-3"><label class="text-xs text-timecut-500">自动剪辑</label><button id="s-highlight-toggle" onclick="toggleHighlight()" class="btn relative w-12 h-6 rounded-full transition-colors ${s.highlight_enabled ? 'bg-accent-600' : 'bg-timecut-600'}"><span class="absolute top-0.5 w-5 h-5 bg-white rounded-full transition-transform ${s.highlight_enabled ? 'translate-x-6' : 'translate-x-0.5'}"></span></button></div>
+           <div><label class="block text-xs text-timecut-500 mb-1.5">精华视频时长（分钟）</label><input id="s-hl-duration" type="number" min="1" max="30" class="w-32 bg-timecut-900 border border-timecut-700 rounded-lg px-3 py-2 text-sm text-timecut-200 focus:outline-none focus:border-accent-500" value="${s.highlight_duration_minutes}"></div>
+           <div><label class="block text-xs text-timecut-500 mb-1.5">每日检测时间</label><input id="s-hl-time" type="time" class="w-36 bg-timecut-900 border border-timecut-700 rounded-lg px-3 py-2 text-sm text-timecut-200 focus:outline-none focus:border-accent-500" value="${s.highlight_schedule_time}"></div>
+           <div><label class="block text-xs text-timecut-500 mb-1.5">运动检测灵敏度（1-100，越高越灵敏）</label>
+             <div class="flex items-center gap-3">
+               <input id="s-sensitivity" type="range" min="1" max="100" class="flex-1 accent-accent-500" value="${s.detection_sensitivity}">
+               <span class="text-xs text-timecut-400 w-8 text-right" id="sens-value">${s.detection_sensitivity}</span>
+             </div>
+           </div>
+         </div>
+       </div>
+ 
+       <div class="flex gap-3">
+         <button onclick="saveSettings()" class="btn bg-accent-600 hover:bg-accent-500 text-white px-6 py-2.5 rounded-lg text-sm font-medium">保存设置</button>
+       </div>
+     </div>`;
+ 
+     document.getElementById('s-sensitivity')?.addEventListener('input', function() {
+       document.getElementById('sens-value').textContent = this.value;
+     });
+ 
+   } catch (e) { el.innerHTML = `<div class="text-red-400 text-center py-20">加载失败: ${e.message}</div>`; }
+ }
+ 
+ window.toggleHighlight = function() {
+   const btn = document.getElementById('s-highlight-toggle');
+   const enabled = !btn.classList.contains('bg-accent-600');
+   btn.className = `btn relative w-12 h-6 rounded-full transition-colors ${enabled ? 'bg-accent-600' : 'bg-timecut-600'}`;
+   btn.querySelector('span').className = `absolute top-0.5 w-5 h-5 bg-white rounded-full transition-transform ${enabled ? 'translate-x-6' : 'translate-x-0.5'}`;
+ };
+ 
+ window.saveSettings = async function() {
+   const data = {
+     camera_name: document.getElementById('s-name')?.value,
+     camera_rtsp_url: document.getElementById('s-rtsp')?.value,
+     recording_retention_days: parseInt(document.getElementById('s-retention')?.value),
+     recording_segment_minutes: parseInt(document.getElementById('s-segment')?.value),
+     highlight_enabled: document.getElementById('s-highlight-toggle')?.classList.contains('bg-accent-600'),
+     highlight_duration_minutes: parseInt(document.getElementById('s-hl-duration')?.value),
+     highlight_schedule_time: document.getElementById('s-hl-time')?.value,
+     detection_sensitivity: parseInt(document.getElementById('s-sensitivity')?.value),
+   };
+   try {
+     await API.put('/api/settings', data);
+     toast('设置已保存', 'success');
+     // 如果是 RTSP 地址变了，触发录制重启
+     if (data.camera_rtsp_url) {
+       await API.post('/api/settings/restart-recording');
+       toast('录制已重启', 'info');
+     }
+     updateStatus();
+   } catch (e) { toast(`保存失败: ${e.message}`, 'error'); }
+ };
+ 
+ // ══════════ 视频播放器 ══════════
+const PLAYER_MODAL_HTML = `
+<div id="player-modal" class="fixed inset-0 z-50 hidden">
+  <div class="absolute inset-0 bg-black/80" onclick="closePlayer()"></div>
+  <div class="relative z-10 max-w-5xl mx-auto h-full flex items-center p-4">
+    <div class="w-full bg-timecut-900 rounded-xl border border-timecut-700 overflow-hidden">
+      <div class="flex items-center justify-between px-4 py-3 border-b border-timecut-700">
+        <span class="text-sm text-timecut-200" id="player-title">播放录像</span>
+        <button onclick="closePlayer()" class="text-timecut-500 hover:text-timecut-300">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <div class="bg-black">
+        <video id="player-video" class="w-full max-h-[70vh]" controls autoplay playsinline></video>
+      </div>
+    </div>
+  </div>
+</div>`;
+
+document.body.insertAdjacentHTML('beforeend', PLAYER_MODAL_HTML);
+
+window.playRecording = function(id, timeStr) {
+  const modal = document.getElementById('player-modal');
+  const video = document.getElementById('player-video');
+  const title = document.getElementById('player-title');
+  title.textContent = `录像 - ${timeStr || '未知时间'}`;
+  video.src = `/api/recordings/play/${id}`;
+  video.load();
+  modal.classList.remove('hidden');
+};
+
+window.closePlayer = function() {
+  const modal = document.getElementById('player-modal');
+  const video = document.getElementById('player-video');
+  video.pause();
+  video.src = '';
+  modal.classList.add('hidden');
+};
+
+// ══════════ 初始化 ══════════
+document.addEventListener('DOMContentLoaded', () => {
+  const page = location.hash.slice(1) || 'dashboard';
+  if (PAGES.includes(page)) navigate(page); else navigate('dashboard');
+  updateStatus();
+  updateClock();
+});

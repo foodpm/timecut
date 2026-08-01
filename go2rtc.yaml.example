@@ -1,0 +1,41 @@
+# TimeCut - go2rtc 配置模板
+# 部署时复制为 go2rtc.yaml 并填入你的摄像头信息:
+#   cp go2rtc.yaml.example go2rtc.yaml
+
+streams:
+  # ── 摄像头源 ──
+  # 普通 RTSP 摄像头:
+  #   camera1:
+  #     - rtsp://user:password@camera_ip:554/stream
+  #
+  # 小米/米家摄像头 (xiaomi 私有协议, 需要账号 token):
+  #   camera1:
+  #     - xiaomi://2947415629:cn@192.168.1.100?did=XXXXXXXX&model=chuangmi.camera.069a01&subtype=hd
+  #
+  # 并将下面的 xiaomi 凭据段填入你的账号 token
+  camera1:
+    - rtsp://user:password@camera_ip:554/stream
+
+  # H.264 转码流 (供浏览器 MSE 播放, 需 FFmpeg)
+  camera1_h264:
+    - ffmpeg:camera1#video=h264#audio=aac#width=1280#height=720
+
+api:
+  listen: ":1984"
+  # 允许跨域访问 (Web UI 与 go2rtc 端口不同时必须开启)
+  origin: "*"
+
+rtsp:
+  listen: ":8554"
+
+webrtc:
+  listen: ":8555"
+  candidates:
+    - ""
+
+hls:
+  listen: ":8888"
+
+# 小米摄像头凭据 (使用 xiaomi:// 协议时必填, 替换为你的账号 token)
+#xiaomi:
+#  "2947415629": V1:your_account_token_here

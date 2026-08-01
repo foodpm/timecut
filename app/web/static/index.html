@@ -1,0 +1,103 @@
+ <!DOCTYPE html>
+ <html lang="zh-CN">
+ <head>
+ <meta charset="UTF-8">
+ <meta name="viewport" content="width=device-width, initial-scale=1.0">
+ <title>TimeCut - 监控录像管理</title>
+ <script src="https://cdn.tailwindcss.com"></script>
+ <script>
+ tailwind.config = {
+   darkMode: 'class',
+   theme: {
+     extend: {
+       colors: {
+         timecut: { 900: '#0f172a', 800: '#1e293b', 700: '#334155', 600: '#475569', 500: '#64748b', 400: '#94a3b8', 300: '#cbd5e1', 200: '#e2e8f0', 100: '#f1f5f9', },
+         accent: { 50: '#eff6ff', 100: '#dbeafe', 200: '#bfdbfe', 300: '#93c5fd', 400: '#60a5fa', 500: '#3b82f6', 600: '#2563eb', 700: '#1d4ed8', }
+       }
+     }
+   }
+ }
+ </script>
+ <style>
+ * { margin: 0; padding: 0; box-sizing: border-box; }
+ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+ .sidebar { width: 240px; min-width: 240px; }
+ .nav-link { transition: all 0.15s; }
+ .nav-link:hover { background: #1e293b; }
+ .nav-link.active { background: #2563eb20; color: #60a5fa; border-right: 3px solid #3b82f6; }
+ .page { display: none; }
+ .page.active { display: block; }
+ .stat-card { transition: transform 0.15s; }
+ .stat-card:hover { transform: translateY(-2px); }
+ .btn { transition: all 0.15s; cursor: pointer; }
+ .btn:active { transform: scale(0.97); }
+ .loading { opacity: 0.5; pointer-events: none; }
+ .toast { z-index: 9999; }
+ ::-webkit-scrollbar { width: 6px; }
+ ::-webkit-scrollbar-track { background: transparent; }
+ ::-webkit-scrollbar-thumb { background: #475569; border-radius: 3px; }
+ .video-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 1rem; }
+ @media (max-width: 768px) { .sidebar { width: 56px; min-width: 56px; } .sidebar .nav-label { display: none; } .sidebar .logo-text { display: none; } }
+ </style>
+ </head>
+ <body class="bg-timecut-900 text-timecut-200 h-full flex">
+ 
+ <!-- ===== 侧边栏 ===== -->
+ <nav class="sidebar bg-timecut-800 border-r border-timecut-700 flex flex-col h-full">
+   <div class="p-4 border-b border-timecut-700 flex items-center gap-3">
+     <div class="w-8 h-8 rounded-lg bg-accent-600 flex items-center justify-center text-white font-bold text-sm">TC</div>
+     <span class="logo-text font-semibold text-timecut-100 text-lg">TimeCut</span>
+   </div>
+   <div class="flex-1 py-3">
+     <a href="#dashboard" class="nav-link active flex items-center gap-3 px-4 py-2.5 text-sm text-timecut-400" data-page="dashboard">
+       <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/></svg>
+       <span class="nav-label">仪表盘</span>
+     </a>
+     <a href="#live" class="nav-link flex items-center gap-3 px-4 py-2.5 text-sm text-timecut-400" data-page="live">
+       <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+       <span class="nav-label">实时画面</span>
+     </a>
+     <a href="#recordings" class="nav-link flex items-center gap-3 px-4 py-2.5 text-sm text-timecut-400" data-page="recordings">
+       <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+       <span class="nav-label">录像回看</span>
+     </a>
+     <a href="#highlights" class="nav-link flex items-center gap-3 px-4 py-2.5 text-sm text-timecut-400" data-page="highlights">
+       <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"/></svg>
+       <span class="nav-label">精华视频</span>
+     </a>
+     <a href="#settings" class="nav-link flex items-center gap-3 px-4 py-2.5 text-sm text-timecut-400" data-page="settings">
+       <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+       <span class="nav-label">系统设置</span>
+     </a>
+   </div>
+   <div class="p-4 border-t border-timecut-700 text-xs text-timecut-500">
+     <div class="flex items-center gap-2 mb-1">
+       <span class="w-2 h-2 rounded-full" id="status-dot"></span>
+       <span id="status-text">检查中...</span>
+     </div>
+     <span>TimeCut v0.1.0</span>
+   </div>
+ </nav>
+ 
+ <!-- ===== 主内容区 ===== -->
+ <main class="flex-1 flex flex-col h-full overflow-hidden">
+   <!-- 顶部栏 -->
+   <header class="h-14 border-b border-timecut-700 flex items-center justify-between px-6 shrink-0">
+     <h1 class="text-lg font-semibold text-timecut-100" id="page-title">仪表盘</h1>
+     <div class="flex items-center gap-3">
+       <span class="text-xs text-timecut-500" id="clock"></span>
+     </div>
+   </header>
+ 
+   <!-- 页面内容 -->
+   <div class="flex-1 overflow-y-auto p-6" id="page-content">
+     <!-- 各页面由 JS 动态渲染 -->
+   </div>
+ </main>
+ 
+ <!-- ===== Toast 容器 ===== -->
+ <div id="toast-container" class="toast fixed top-4 right-4 flex flex-col gap-2"></div>
+ 
+ <script src="js/app.js"></script>
+ </body>
+ </html>
