@@ -168,6 +168,17 @@ async function loadGo2RtcPlayer() {
   if (!player) return;
 
   try {
+    // 动态获取 go2rtc 流名（从摄像头 RTSP 地址解析，避免硬编码导致 notfound）
+    let streamName = 'cam';
+    try {
+      const s = await API.get('/api/settings');
+      if (s.camera_rtsp_url) {
+        const path = s.camera_rtsp_url.split('/').pop();
+        if (path) streamName = decodeURIComponent(path);
+      }
+    } catch (e) {
+      // 设置接口失败时回退到默认流名 cam
+    }
     // 动态加载本地 video-stream 组件（同源加载，避免跨域限制）
     if (!window.customElements.get('video-stream')) {
       await import('/js/video-stream.js');
@@ -180,7 +191,7 @@ async function loadGo2RtcPlayer() {
     vs.style.height = '100%';
     vs.mode = 'mse';
     vs.background = false;
-    vs.src = `ws://${host}:1984/api/ws?src=xiaomi_camera_h264`;
+    vs.src = `ws://${host}:1984/api/ws?src=${encodeURIComponent(streamName)}`;
     player.innerHTML = '';
     player.appendChild(vs);
   } catch (e) {
@@ -340,7 +351,9 @@ function refreshLive() {
                </div>
              </div>
              <div class="space-y-2 max-h-52 overflow-y-auto pr-1">
-               ${g.streams.map(st => `
+               ${g.streams.map(st => {
+                 const inUse = !!s.camera_rtsp_url && s.camera_rtsp_url.endsWith('/' + st.name);
+                 return `
                  <div class="flex items-center justify-between gap-2 bg-timecut-900 border border-timecut-700 rounded-lg px-3 py-2">
                    <div class="min-w-0">
                      <div class="text-xs text-timecut-200 flex items-center gap-1.5">${st.name} <span class="text-[10px] ${st.online ? 'text-green-400' : 'text-timecut-600'}">${st.online ? '●在线' : '○离线'}</span></div>
@@ -350,10 +363,12 @@ function refreshLive() {
                      <button onclick="deleteGo2RtcStream('${st.name}')" class="btn p-1.5 text-timecut-500 hover:text-red-400 rounded" title="删除该视频流">
                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
                      </button>
-                     <button onclick="useGo2RtcStream('${st.rtsp_url}')" class="btn text-xs bg-accent-600 hover:bg-accent-500 text-white px-2.5 py-1 rounded">使用</button>
+                     ${inUse
+                       ? '<span class="text-xs text-green-400 px-2.5 py-1">● 使用中</span>'
+                       : `<button onclick="useGo2RtcStream('${st.rtsp_url}')" class="btn text-xs bg-accent-600 hover:bg-accent-500 text-white px-2.5 py-1 rounded">使用</button>`}
                    </div>
-                 </div>
-               `).join('')}
+                 </div>`;
+               }).join('')}
                ${!g.streams.length ? `<div class="text-xs text-timecut-500 text-center py-3">${g.error ? '⚠ ' + g.error : '暂无 go2rtc 视频流'}</div>` : ''}
              </div>
            </div>
@@ -374,11 +389,11 @@ function refreshLive() {
          <h3 class="text-sm font-semibold text-timecut-300 mb-4">录制规则</h3>
          <div class="space-y-4">
            <div><label class="block text-xs text-timecut-500 mb-1.5">录制间隔（分钟，0 = 连续录制）</label>
-             <div class="flex items-center gap-3">
-               <input id="s-interval" type="number" min="0" max="1440" class="w-32 bg-timecut-900 border border-timecut-700 rounded-lg px-3 py-2 text-sm text-timecut-200 focus:outline-none focus:border-accent-500" value="${s.recording_interval_minutes ?? 0}">
-               <span class="text-xs text-timecut-500">每隔该分钟数录制一次，每次录「分段时长」分钟</span>
-             </div>
-           </div>
+            <div class="flex items-center gap-3">
+              <input id="s-interval" type="number" min="0" max="1440" class="w-32 bg-timecut-900 border border-timecut-700 rounded-lg px-3 py-2 text-sm text-timecut-200 focus:outline-none focus:border-accent-500" value="${s.recording_interval_minutes ?? 0}">
+              <span class="text-xs text-timecut-500">每录一段「分段时长」分钟后，间隔该分钟数再录下一段</span>
+            </div>
+          </div>
            <div class="grid grid-cols-2 gap-4">
              <div><label class="block text-xs text-timecut-500 mb-1.5">每天开始录制</label><input id="s-start-time" type="time" class="w-full bg-timecut-900 border border-timecut-700 rounded-lg px-3 py-2 text-sm text-timecut-200 focus:outline-none focus:border-accent-500" value="${s.recording_start_time || '00:00'}"></div>
              <div><label class="block text-xs text-timecut-500 mb-1.5">每天结束录制</label><input id="s-end-time" type="time" class="w-full bg-timecut-900 border border-timecut-700 rounded-lg px-3 py-2 text-sm text-timecut-200 focus:outline-none focus:border-accent-500" value="${s.recording_end_time || '23:59'}"></div>

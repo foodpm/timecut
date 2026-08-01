@@ -20,6 +20,7 @@ class RecorderManager:
         self._process: asyncio.subprocess.Process | None = None
         self._running = False
         self._stopping = False
+        self._failures = 0
         self._scheduler_task: asyncio.Task | None = None
         self._tz = ZoneInfo(settings.tz)
 
@@ -73,14 +74,16 @@ class RecorderManager:
         if not in_window:
             return False
         # 2. 录制间隔判断（0 = 连续录制）
+        # 每段录制 seg 分钟，录完后间隔 interval 分钟再录下一段
         interval = settings.recording_interval_minutes
         if interval <= 0:
             return True
         seg = settings.recording_segment_minutes
-        if seg >= interval:
-            return True
+        if seg <= 0:
+            seg = 1
+        cycle = interval + seg
         total_min = now.hour * 60 + now.minute
-        return (total_min % interval) < seg
+        return (total_min % cycle) < seg
 
     def _ensure_dirs(self):
         settings.recordings_dir.mkdir(parents=True, exist_ok=True)
@@ -110,6 +113,7 @@ class RecorderManager:
         cmd = [
             "ffmpeg",
             "-rtsp_transport", "tcp",
+            "-timeout", "15000000",  # socket I/O 超时 15 秒（微秒，防瞬时卡顿误判断流）
             "-use_wallclock_as_timestamps", "1",
             "-i", stream_url,
             "-c:v", "libx264",
@@ -149,18 +153,31 @@ class RecorderManager:
             logger.error(f"监控录制进程异常: {e}")
         finally:
             self._running = False
-        if self._process.returncode != 0:
-            logger.error(
-                f"录制进程异常退出 (code={self._process.returncode}): "
-                f"{stderr_data.decode(errors='replace')[-500:]}"
-            )
-            # 录制进程异常退出后自动恢复（等待几秒避免 RTSP 瞬时故障时死循环）
-            await asyncio.sleep(5)
-            if not self._stopping and not self._running and self._should_record():
-                logger.info("录制进程异常退出，正在自动重启...")
-                await self.start()
-        else:
+        if self._process.returncode == 0:
+            self._failures = 0
             logger.info("录制进程正常退出")
+            return
+        self._failures += 1
+        logger.error(
+            f"录制进程异常退出 (code={self._process.returncode}): "
+            f"{stderr_data.decode(errors='replace')[-500:]}"
+        )
+        # 连续失败过多（如 RTSP 地址配置错误）时暂停，避免死循环快速重启
+        if self._failures >= 6:
+            logger.error("录制连续失败 6 次，暂停 60 秒后重试")
+            await asyncio.sleep(60)
+            self._failures = 0
+            if self._stopping or not self._should_record():
+                return
+            logger.info("正在重启录制...")
+            await self.start()
+            return
+        # 录制进程异常退出后自动恢复（短暂等待避免 RTSP 瞬时故障时死循环）
+        await asyncio.sleep(2)
+        if self._stopping or not self._should_record():
+            return
+        logger.info("录制进程异常退出，正在自动重启...")
+        await self.start()
 
     async def stop(self):
         self._stopping = True
