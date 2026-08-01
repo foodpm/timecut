@@ -207,14 +207,20 @@ class RecorderManager:
                 return
             for fpath in sorted(rec_dir.rglob("*.mp4")):
                 rel = fpath.relative_to(rec_dir)
+                try:
+                    stat = fpath.stat()
+                except OSError:
+                    continue
                 exists = (
                     session.query(Recording)
                     .filter(Recording.file_path == str(rel))
                     .first()
                 )
                 if exists:
+                    # ffmpeg 写入期间记录的旧大小已过期，刷新为最新文件大小
+                    if exists.file_size != stat.st_size:
+                        exists.file_size = stat.st_size
                     continue
-                stat = fpath.stat()
                 stem = fpath.stem
                 try:
                     start_time = datetime.strptime(stem, "%Y%m%d_%H%M%S")

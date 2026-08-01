@@ -88,15 +88,19 @@ def get_available_dates():
 
 @router.get("/stats")
 def get_recording_stats():
-    session = get_session()
-    try:
-        total_count = session.query(Recording).count()
-        total_size = session.query(Recording.file_size).all()
-        total_bytes = sum((r[0] or 0) for r in total_size)
-        return {
-            "total_recordings": total_count,
-            "total_size_gb": round(total_bytes / 1024 / 1024 / 1024, 2),
-            "retention_days": settings.recording_retention_days,
-        }
-    finally:
-        session.close()
+    """统计录像总数与占用空间（按文件系统实时统计，数据库中的 file_size 可能过期）"""
+    rec_dir = settings.recordings_dir
+    total_bytes = 0
+    total_count = 0
+    if rec_dir.exists():
+        for f in rec_dir.rglob("*.mp4"):
+            total_count += 1
+            try:
+                total_bytes += f.stat().st_size
+            except OSError:
+                pass
+    return {
+        "total_recordings": total_count,
+        "total_size_gb": round(total_bytes / 1024 / 1024 / 1024, 2),
+        "retention_days": settings.recording_retention_days,
+    }
