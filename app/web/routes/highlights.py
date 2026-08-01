@@ -1,12 +1,16 @@
 """精华视频管理 API"""
 
+import logging
+import subprocess
 from pathlib import Path
 
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, Query, HTTPException, Response
 from fastapi.responses import FileResponse, JSONResponse
 
 from database import get_session, Highlight
 from config import settings
+
+logger = logging.getLogger("timecut.api")
 
 router = APIRouter(prefix="/api/highlights", tags=["highlights"])
 
@@ -43,6 +47,54 @@ def list_highlights(page: int = Query(1, ge=1), page_size: int = Query(50, ge=1,
                 "created_at": h.created_at.isoformat() if h.created_at else None,
             } for h in records],
         }
+    finally:
+        session.close()
+
+
+@router.get("/{highlight_id}/thumbnail")
+def highlight_thumbnail(highlight_id: int):
+    """返回精华视频缩略图（首次请求时用 FFmpeg 提取一帧并缓存）"""
+    session = get_session()
+    try:
+        hl = session.query(Highlight).filter(Highlight.id == highlight_id).first()
+        if not hl:
+            raise HTTPException(404, "精华视频不存在")
+    finally:
+        session.close()
+    video_path = Path(settings.data_dir) / hl.file_path
+    if not video_path.exists():
+        raise HTTPException(404, "视频文件不存在")
+    thumb_path = Path(settings.data_dir) / "highlights" / "thumbs" / f"{video_path.stem}.jpg"
+    if not thumb_path.exists():
+        thumb_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            subprocess.run(
+                ["ffmpeg", "-y", "-ss", "2", "-i", str(video_path),
+                 "-frames:v", "1", "-vf", "scale=320:-1", "-q:v", "5", str(thumb_path)],
+                capture_output=True, text=True, timeout=30,
+            )
+        except Exception as e:
+            logger.warning(f"生成精华缩略图失败: {e}")
+        if not thumb_path.exists() or thumb_path.stat().st_size == 0:
+            return Response(status_code=204)
+    return FileResponse(str(thumb_path), media_type="image/jpeg")
+
+
+@router.get("/play/{highlight_id}")
+def play_highlight(highlight_id: int):
+    """在线播放精华视频（支持拖拽进度，无 attachment 下载头）"""
+    session = get_session()
+    try:
+        hl = session.query(Highlight).filter(Highlight.id == highlight_id).first()
+        if not hl:
+            raise HTTPException(404, "精华视频不存在")
+        file_path = Path(settings.data_dir) / hl.file_path
+        if not file_path.exists():
+            raise HTTPException(404, "视频文件不存在")
+        return FileResponse(
+            path=str(file_path), media_type="video/mp4",
+            headers={"Accept-Ranges": "bytes"},
+        )
     finally:
         session.close()
 

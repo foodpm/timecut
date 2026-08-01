@@ -84,7 +84,7 @@ class HighlightScheduler:
                     file_size=output.stat().st_size,
                     duration=self._clipper.target_duration,
                     date=date_str, clip_count=len(all_segments),
-                    strategy="motion",
+                    strategy="ai" if settings.ai_enabled else "motion",
                 )
                 session.add(hl)
                 session.commit()

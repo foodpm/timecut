@@ -59,6 +59,13 @@ class SettingsUpdate(BaseModel):
     ai_max_segments: int | None = None
 
 
+class AITestRequest(BaseModel):
+    """AI 连接测试请求（未保存的表单值，缺省回退到已保存配置）"""
+    ai_base_url: str | None = None
+    ai_model: str | None = None
+    ai_api_key: str | None = None
+
+
 @router.get("")
 def get_settings():
     return {
@@ -281,6 +288,68 @@ def update_settings(data: SettingsUpdate):
         changes["ai_max_segments"] = settings.ai_max_segments
     _persist_settings(changes)
     return {"status": "ok"}
+
+
+@router.post("/ai/test")
+def test_ai_connection(data: AITestRequest):
+    """测试大模型连接：优先请求 /models 验证地址与 Key，不支持时回退最小 chat 请求"""
+    import urllib.error
+
+    base_url = (data.ai_base_url if data.ai_base_url is not None else settings.ai_base_url).strip().rstrip("/")
+    api_key = (data.ai_api_key if data.ai_api_key is not None else settings.ai_api_key).strip()
+    model = (data.ai_model if data.ai_model is not None else settings.ai_model).strip()
+
+    if not base_url:
+        return {"status": "error", "message": "请先填写 API 地址"}
+    if not api_key:
+        return {"status": "error", "message": "请先填写 API Key"}
+
+    # 1. 轻量校验：GET /models 验证地址可达 + Key 有效
+    models = []
+    try:
+        req = urllib.request.Request(
+            base_url + "/models",
+            headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            payload = json.loads(resp.read().decode("utf-8", errors="replace"))
+        models = [m.get("id") for m in (payload.get("data") or []) if m.get("id")]
+        note = ""
+        if model and models and model not in models:
+            note = f"，但模型「{model}」不在返回列表（{len(models)} 个）中，请检查模型 ID"
+        return {"status": "ok", "message": "连接成功，API Key 有效" + note, "models": models[:50]}
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            pass  # 服务端不支持 /models，走下面的最小 chat 请求验证
+        else:
+            detail = e.read().decode("utf-8", errors="replace")[:200]
+            return {"status": "error", "message": f"HTTP {e.code}: {detail}"}
+    except Exception as e:
+        return {"status": "error", "message": f"无法连接 {base_url}: {e}"}
+
+    # 2. 兜底：最小 chat/completions 请求验证模型可用
+    try:
+        body = json.dumps({
+            "model": model or "gpt-4o-mini",
+            "messages": [{"role": "user", "content": "hi"}],
+            "max_tokens": 1,
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            base_url + "/chat/completions",
+            data=body,
+            method="POST",
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            payload = json.loads(resp.read().decode("utf-8", errors="replace"))
+        if payload.get("choices"):
+            return {"status": "ok", "message": "连接成功，模型可正常调用"}
+        return {"status": "error", "message": f"返回数据异常: {str(payload)[:200]}"}
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode("utf-8", errors="replace")[:200]
+        return {"status": "error", "message": f"HTTP {e.code}: {detail}"}
+    except Exception as e:
+        return {"status": "error", "message": f"调用模型失败: {e}"}
 
 
 @router.post("/restart-recording")

@@ -6,7 +6,7 @@
 <title>添加摄像头</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
-body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #cbd5e1; padding: 20px; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #cbd5e1; padding: 20px 20px 32px; overflow-y: auto; }
 h2 { color: #f1f5f9; font-size: 17px; font-weight: 600; margin-bottom: 16px; }
 
 /* 品牌选择按钮 */
@@ -25,10 +25,34 @@ input:focus, select:focus { border-color: #2563eb; }
 input::placeholder { color: #475569; }
 
 /* 操作按钮：统一右对齐 */
-.btn-row { display: flex; justify-content: flex-end; gap: 10px; }
+.btn-row { display: flex; justify-content: flex-end; gap: 10px; margin-top: 8px; }
 button.action { background: #2563eb; color: #fff; border: none; padding: 9px 20px; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 500; transition: background .15s; }
 button.action:hover { background: #1d4ed8; }
 button.action.small { padding: 5px 12px; font-size: 12px; }
+
+/* 行内表单：输入框 + 同高按钮横排 */
+.inline-row { display: flex; align-items: stretch; gap: 12px; }
+.inline-row input { flex: 1; }
+.inline-row button.action { flex: none; }
+
+/* 图形验证码：标题在上，图片在标题正下方，再下是输入框 + 按钮 */
+#xiaomi-captcha .captcha-top { gap: 12px; }
+#xiaomi-captcha .captcha-top .captcha-img { height: 40px; width: auto; align-self: flex-start; }
+#xiaomi-captcha .captcha-input-row { margin-top: 14px; }
+
+/* 行内多列：登录设备 / 地区 / 按钮一行 */
+.row-inline { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+.row-inline .row { flex: 1; min-width: 150px; }
+
+/* 短信验证码：标题 + 手机号与输入框同一行垂直居中，手机号与输入框拉开距离 */
+.verify-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.verify-title { font-size: 12px; color: #94a3b8; font-weight: 500; white-space: nowrap; }
+.verify-phone { font-size: 13px; color: #e2e8f0; white-space: nowrap; word-break: break-all; }
+.verify-row input { flex: 1; min-width: 140px; margin-left: 18px; }
+.verify-row button.action { flex: none; }
+
+/* 登录表单行间距：密码与上方小米 ID 拉开距离 */
+#xiaomi-login .row + .row { margin-top: 10px; }
 
 /* 表格 */
 table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 2px; }
@@ -63,6 +87,7 @@ td { vertical-align: middle; }
 
 <button class="brand" id="btn-xiaomi">小米 / 米家（账号登录）</button>
 <div class="panel" id="panel-xiaomi">
+  <!-- 登录 -->
   <div id="xiaomi-login">
     <div class="row">
       <label>小米 ID</label>
@@ -73,40 +98,47 @@ td { vertical-align: middle; }
       <input id="xm-pass" type="password" placeholder="请输入密码">
     </div>
     <div class="btn-row">
-      <button class="action" onclick="xiaomiLogin()">登录</button>
+      <button class="action" id="xm-login-btn" onclick="xiaomiLogin()">登录</button>
     </div>
   </div>
+  <!-- 图形验证码：标题在上，图片在标题正下方，再下是输入框 + 按钮 -->
   <div id="xiaomi-captcha" style="display:none">
-    <div class="row"><label>图形验证码</label><img id="xm-captcha-img" class="captcha-img"></div>
-    <div class="row"><input id="xm-captcha" placeholder="输入图形验证码"></div>
-    <div class="btn-row">
+    <div class="row captcha-top">
+      <label>图形验证码</label>
+      <img id="xm-captcha-img" class="captcha-img">
+    </div>
+    <div class="inline-row captcha-input-row">
+      <input id="xm-captcha" placeholder="输入图形验证码">
       <button class="action" onclick="xiaomiSend('captcha')">提交</button>
     </div>
   </div>
+  <!-- 短信 / 邮箱验证码：标题 + 手机号与输入框同一行垂直居中 -->
   <div id="xiaomi-verify" style="display:none">
-    <div class="row"><label id="xm-verify-label">短信 / 邮箱验证码</label></div>
-    <div class="row"><input id="xm-verify" placeholder="输入验证码"></div>
-    <div class="btn-row">
+    <div class="verify-row">
+      <span class="verify-title">请输入短信验证码</span>
+      <span id="xm-verify-phone" class="verify-phone"></span>
+      <input id="xm-verify" placeholder="输入验证码">
       <button class="action" onclick="xiaomiSend('verify')">提交</button>
     </div>
   </div>
+  <!-- 设备列表：登录设备 / 地区 / 按钮一行，名称地址表格下一行 -->
   <div id="xiaomi-devices" style="display:none">
-    <div class="row">
-      <label>已登录设备</label>
-      <select id="xm-device"></select>
-    </div>
-    <div class="row">
-      <label>地区</label>
-      <select id="xm-region">
-        <option value="cn">中国</option>
-        <option value="de">欧洲</option>
-        <option value="i2">印度</option>
-        <option value="ru">俄罗斯</option>
-        <option value="sg">新加坡</option>
-        <option value="us">美国</option>
-      </select>
-    </div>
-    <div class="btn-row">
+    <div class="row-inline">
+      <div class="row">
+        <label>登录设备</label>
+        <select id="xm-device"></select>
+      </div>
+      <div class="row">
+        <label>地区</label>
+        <select id="xm-region">
+          <option value="cn">中国</option>
+          <option value="de">欧洲</option>
+          <option value="i2">印度</option>
+          <option value="ru">俄罗斯</option>
+          <option value="sg">新加坡</option>
+          <option value="us">美国</option>
+        </select>
+      </div>
       <button class="action" onclick="xiaomiLoadDevices()">加载设备列表</button>
     </div>
     <table><thead><tr><th>名称</th><th>地址</th><th></th></tr></thead><tbody id="xm-table"></tbody></table>
@@ -174,13 +206,19 @@ async function manualAdd() {
 }
 
 // ── 小米 / 米家 ──
-function hideXiaomiSections() {
-  document.getElementById('xiaomi-login').style.display = '';
-  document.getElementById('xiaomi-captcha').style.display = 'none';
-  document.getElementById('xiaomi-verify').style.display = 'none';
+// 视图切换：login / captcha / verify / devices 互斥显示
+function showXiaomiView(view) {
+  ['xiaomi-login', 'xiaomi-captcha', 'xiaomi-verify', 'xiaomi-devices'].forEach(id => {
+    document.getElementById(id).style.display = 'none';
+  });
+  if (view) document.getElementById(view).style.display = 'flex';
 }
 
 async function xiaomiLogin() {
+  // 点击登录后隐藏登录按钮，避免重复提交
+  const btn = document.getElementById('xm-login-btn');
+  btn.style.display = 'none';
+  status('登录中...');
   const body = new URLSearchParams();
   body.set('username', document.getElementById('xm-user').value.trim());
   body.set('password', document.getElementById('xm-pass').value);
@@ -194,24 +232,34 @@ async function xiaomiSend(type) {
 }
 
 async function xiaomiAuth(body) {
-  const r = await fetch(GO2RTC + '/api/xiaomi', { method: 'POST', body: body });
+  let r;
+  try {
+    r = await fetch(GO2RTC + '/api/xiaomi', { method: 'POST', body: body });
+  } catch (e) {
+    status('网络错误：' + e.message, true);
+    showXiaomiView('xiaomi-login');
+    const btn = document.getElementById('xm-login-btn');
+    if (btn) btn.style.display = '';
+    return;
+  }
   if (r.status === 401) {
     const data = await r.json();
-    hideXiaomiSections();
     if (data.captcha) {
-      document.getElementById('xiaomi-captcha').style.display = 'flex';
+      showXiaomiView('xiaomi-captcha');
       document.getElementById('xm-captcha-img').src = 'data:image/jpeg;base64,' + data.captcha;
     } else {
-      document.getElementById('xiaomi-verify').style.display = 'flex';
-      document.getElementById('xm-verify-label').textContent = data.verify_email || data.verify_phone || '短信验证码';
+      showXiaomiView('xiaomi-verify');
+      document.getElementById('xm-verify-phone').textContent = data.verify_phone || data.verify_email || '';
     }
   } else if (r.ok) {
-    status('小米登录成功，加载设备中...');
-    hideXiaomiSections();
+    status('小米登录成功，加载账号中...');
     await xiaomiReload();
   } else {
     status('登录失败：' + (await r.text()), true);
-    hideXiaomiSections();
+    // 回到登录页，重新显示登录按钮
+    showXiaomiView('xiaomi-login');
+    const btn = document.getElementById('xm-login-btn');
+    if (btn) btn.style.display = '';
   }
 }
 
@@ -219,11 +267,18 @@ async function xiaomiReload() {
   try {
     const r = await fetch(GO2RTC + '/api/xiaomi', { cache: 'no-cache' });
     const data = await r.json();
+    // 过滤空账号（go2rtc 登录异常时可能写入空 key，导致下拉出现空选项）
+    const accounts = (Array.isArray(data) ? data : []).filter(s => s && String(s).trim());
     const select = document.getElementById('xm-device');
-    select.innerHTML = data.map(item => '<option value="' + item + '">' + item + '</option>').join('');
-    document.getElementById('xiaomi-devices').style.display = 'flex';
+    select.innerHTML = accounts.map(item => '<option value="' + item + '">' + item + '</option>').join('');
+    if (!accounts.length) {
+      status('登录成功但账号未正确保存，请重新登录', true);
+      return;
+    }
+    status('小米登录成功，请选择账号并加载设备');
+    showXiaomiView('xiaomi-devices');
   } catch (e) {
-    status('加载设备失败：' + e.message, true);
+    status('加载账号失败：' + e.message, true);
   }
 }
 

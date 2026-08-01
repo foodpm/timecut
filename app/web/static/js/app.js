@@ -289,7 +289,11 @@ function refreshLive() {
  };
  
  // ══════════ 精华视频 ══════════
- async function renderHighlights(el) {
+function strategyLabel(s) {
+  return { ai: '大模型筛选', motion: '运动检测' }[s] || (s + ' 策略');
+}
+
+async function renderHighlights(el) {
    el.innerHTML = '<div class="text-timecut-400 text-center py-20"><div class="animate-spin w-8 h-8 border-2 border-accent-500 border-t-transparent rounded-full mx-auto mb-3"></div>加载中...</div>';
    try {
      const data = await API.get('/api/highlights?page_size=50');
@@ -299,26 +303,44 @@ function refreshLive() {
          <span class="text-xs text-timecut-500">共 ${data.total} 个</span>
        </div>
        ${data.items?.length ? `
-       <div class="video-grid">
-         ${data.items.map(h => `
-           <div class="bg-timecut-800 rounded-xl border border-timecut-700 overflow-hidden">
-             <div class="p-4">
-               <div class="flex items-center justify-between mb-3">
-                 <span class="text-sm font-medium text-timecut-200">${h.date}</span>
-                 <span class="text-xs text-timecut-500">${h.duration_min} 分钟</span>
-               </div>
-               <div class="text-xs text-timecut-500 mb-3">拼接 ${h.clip_count} 个片段 · ${h.file_size_mb} MB · ${h.strategy} 策略</div>
-               <div class="flex gap-2">
-                 <a href="/api/highlights/download/${h.id}" class="btn flex-1 text-center text-xs bg-accent-600 hover:bg-accent-500 text-white px-3 py-2 rounded-lg">下载</a>
-                 <button onclick="deleteHighlight(${h.id})" class="btn text-xs bg-red-600/20 hover:bg-red-600/30 text-red-400 px-3 py-2 rounded-lg">删除</button>
-               </div>
-             </div>
-           </div>
-         `).join('')}
-       </div>` : '<div class="text-timecut-500 text-center py-16 bg-timecut-800 rounded-xl border border-timecut-700"><svg class="w-12 h-12 mx-auto mb-3 text-timecut-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"/></svg>暂无精华视频</div>'}
-     `;
-   } catch (e) { el.innerHTML = `<div class="text-red-400 text-center py-20">加载失败: ${e.message}</div>`; }
- }
+      <div class="video-grid">
+        ${data.items.map(h => `
+          <div class="bg-timecut-800 rounded-xl border border-timecut-700 overflow-hidden">
+            <div class="relative group cursor-pointer" onclick="playHighlight(${h.id}, '${h.date}')">
+              <img src="/api/highlights/${h.id}/thumbnail" class="w-full aspect-video object-cover" loading="lazy" onerror="this.src='data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 320 180%22><rect fill=%22%230f172a%22 width=%22320%22 height=%22180%22/><text x=%22160%22 y=%2295%22 fill=%22%23475569%22 font-size=%2214%22 text-anchor=%22middle%22>暂无预览</text></svg>'">
+              <div class="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                <div class="w-14 h-14 rounded-full bg-white/90 flex items-center justify-center">
+                  <svg class="w-6 h-6 text-black ml-1" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                </div>
+              </div>
+            </div>
+            <div class="p-4">
+              <div class="flex items-center justify-between mb-2">
+                <span class="text-sm font-medium text-timecut-200">${h.date}</span>
+                <span class="text-xs text-timecut-500">${h.duration_min} 分钟</span>
+              </div>
+              <div class="text-xs text-timecut-500 mb-3">拼接 ${h.clip_count} 个片段 · ${h.file_size_mb} MB · ${strategyLabel(h.strategy)}</div>
+              <div class="flex gap-2">
+                <button onclick="playHighlight(${h.id}, '${h.date}')" class="btn flex-1 text-center text-xs bg-accent-600 hover:bg-accent-500 text-white px-3 py-2 rounded-lg">播放</button>
+                <button onclick="deleteHighlight(${h.id})" class="btn text-xs bg-red-600/20 hover:bg-red-600/30 text-red-400 px-3 py-2 rounded-lg">删除</button>
+              </div>
+            </div>
+          </div>
+        `).join('')}
+      </div>` : '<div class="text-timecut-500 text-center py-16 bg-timecut-800 rounded-xl border border-timecut-700"><svg class="w-12 h-12 mx-auto mb-3 text-timecut-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"/></svg>暂无精华视频</div>'}
+    `;
+  } catch (e) { el.innerHTML = `<div class="text-red-400 text-center py-20">加载失败: ${e.message}</div>`; }
+}
+
+window.playHighlight = function(id, dateStr) {
+  const modal = document.getElementById('player-modal');
+  const video = document.getElementById('player-video');
+  const title = document.getElementById('player-title');
+  title.textContent = `精华视频 - ${dateStr || ''}`;
+  video.src = `/api/highlights/play/${id}`;
+  video.load();
+  modal.classList.remove('hidden');
+};
  
  window.deleteHighlight = async function(id) {
    if (!confirm('确定删除这个精华视频？')) return;
@@ -431,6 +453,10 @@ function refreshLive() {
                  <div class="flex-1"><label class="block text-xs text-timecut-500 mb-1.5">最大分析片段数</label><input id="s-ai-max" type="number" min="1" max="50" class="w-full bg-timecut-900 border border-timecut-700 rounded-lg px-3 py-2 text-sm text-timecut-200 focus:outline-none focus:border-accent-500" value="${s.ai_max_segments ?? 20}"></div>
                </div>
                <div><label class="block text-xs text-timecut-500 mb-1.5">API Key</label><input id="s-ai-key" type="password" class="w-full bg-timecut-900 border border-timecut-700 rounded-lg px-3 py-2 text-sm text-timecut-200 focus:outline-none focus:border-accent-500" value="${s.ai_api_key || ''}" placeholder="sk-..."></div>
+               <div class="flex items-center gap-3">
+                 <button onclick="testAiConnection()" class="btn bg-timecut-700 hover:bg-timecut-600 text-timecut-200 px-4 py-2 rounded-lg text-xs">测试连接</button>
+                 <span id="ai-test-result" class="text-xs text-timecut-500"></span>
+               </div>
                <div class="text-[11px] text-timecut-500 leading-relaxed">大模型模式：对运动片段抽帧，调用多模态模型判断画面价值（人/车/包裹等），只分析分数最高的片段以控制成本。支持 OpenAI 兼容接口，如通义千问 qwen-vl、豆包等。</div>
              </div>
            </div>
@@ -459,6 +485,38 @@ function refreshLive() {
 window.toggleAiConfig = function() {
   const cfg = document.getElementById('ai-config');
   if (cfg) cfg.classList.toggle('hidden', !document.getElementById('s-ai-on').checked);
+};
+
+window.testAiConnection = async function() {
+  const result = document.getElementById('ai-test-result');
+  const url = document.getElementById('s-ai-url')?.value;
+  const key = document.getElementById('s-ai-key')?.value;
+  if (!url) { result.textContent = '✗ 请先填写 API 地址'; result.className = 'text-xs text-red-400'; return; }
+  if (!key) { result.textContent = '✗ 请先填写 API Key'; result.className = 'text-xs text-red-400'; return; }
+  result.textContent = '测试中...';
+  result.className = 'text-xs text-timecut-500';
+  try {
+    const res = await fetch('/api/settings/ai/test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ai_base_url: url,
+        ai_model: document.getElementById('s-ai-model')?.value,
+        ai_api_key: key,
+      }),
+    });
+    const data = await res.json();
+    if (data.status === 'ok') {
+      result.textContent = '✓ ' + data.message;
+      result.className = 'text-xs text-green-400';
+    } else {
+      result.textContent = '✗ ' + (data.message || '测试失败');
+      result.className = 'text-xs text-red-400';
+    }
+  } catch (e) {
+    result.textContent = '✗ 测试失败: ' + e.message;
+    result.className = 'text-xs text-red-400';
+  }
 };
  
  window.useGo2RtcStream = async function(rtsp) {
@@ -489,12 +547,12 @@ function openGo2RtcAdd() {
     modal.innerHTML = `
       <div class="absolute inset-0 bg-black/80" onclick="closeGo2RtcAdd()"></div>
       <div class="relative z-10 max-w-3xl mx-auto h-full flex items-center p-4">
-        <div class="w-full bg-timecut-900 rounded-xl border border-timecut-700 overflow-hidden flex flex-col h-[85vh]">
+        <div class="w-full bg-timecut-900 rounded-xl border border-timecut-700 overflow-hidden flex flex-col h-[92vh] max-h-[92vh]">
           <div class="flex items-center justify-between px-4 py-3 border-b border-timecut-700">
             <span class="text-sm text-timecut-200">添加摄像头</span>
             <button onclick="closeGo2RtcAdd()" class="text-timecut-500 hover:text-timecut-300 text-lg leading-none">✕</button>
           </div>
-          <iframe id="go2rtc-add-frame" class="flex-1 w-full border-0" src="/add-camera.html"></iframe>
+          <iframe id="go2rtc-add-frame" class="flex-1 w-full border-0 min-h-0" src="/add-camera.html"></iframe>
         </div>
       </div>`;
     document.body.appendChild(modal);
