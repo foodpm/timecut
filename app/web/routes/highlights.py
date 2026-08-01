@@ -19,10 +19,15 @@ def register_highlight_callback(callback):
 
 
 @router.get("")
-def list_highlights(page: int = Query(1, ge=1), page_size: int = Query(50, ge=1, le=200)):
+def list_highlights(page: int = Query(1, ge=1), page_size: int = Query(50, ge=1, le=200), sort: str = Query("asc", pattern="^(asc|desc)$")):
     session = get_session()
     try:
-        query = session.query(Highlight).order_by(Highlight.created_at.desc())
+        query = session.query(Highlight)
+        # 按录制日期排序（asc = 录制时间在前的在前；desc = 最近的在前）
+        if sort == "desc":
+            query = query.order_by(Highlight.date.desc(), Highlight.id.desc())
+        else:
+            query = query.order_by(Highlight.date.asc(), Highlight.id.asc())
         total = query.count()
         records = query.offset((page - 1) * page_size).limit(page_size).all()
         return {

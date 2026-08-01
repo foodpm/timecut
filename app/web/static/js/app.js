@@ -91,7 +91,7 @@
    el.innerHTML = '<div class="text-timecut-400 text-center py-20"><div class="animate-spin w-8 h-8 border-2 border-accent-500 border-t-transparent rounded-full mx-auto mb-3"></div>加载中...</div>';
    try {
      const [health, stats, highlights, settings] = await Promise.all([
-       API.get('/api/health'), API.get('/api/recordings/stats'), API.get('/api/highlights?page_size=5'), API.get('/api/settings'),
+       API.get('/api/health'), API.get('/api/recordings/stats'), API.get('/api/highlights?page_size=5&sort=desc'), API.get('/api/settings'),
      ]);
      el.innerHTML = `
        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">

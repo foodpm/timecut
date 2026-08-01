@@ -24,6 +24,9 @@ class VideoStream extends VideoRTC {
         console.debug('stream.oninit');
         super.oninit();
 
+        // 实时画面隐藏原生控制条（进度条在实时流上会跳动）
+        this.video.controls = false;
+
         this.innerHTML = `
         <style>
         video-stream {
