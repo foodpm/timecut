@@ -301,6 +301,7 @@ async function renderHighlights(el) {
        <div class="mb-4 flex items-center gap-3">
          <h3 class="text-sm font-semibold text-timecut-300">精华视频</h3>
          <span class="text-xs text-timecut-500">共 ${data.total} 个</span>
+         <button onclick="triggerHighlight()" class="btn ml-auto text-xs bg-accent-600 hover:bg-accent-500 text-white px-4 py-2 rounded-lg">手动生成精华视频</button>
        </div>
        ${data.items?.length ? `
       <div class="video-grid">
@@ -342,7 +343,23 @@ window.playHighlight = function(id, dateStr) {
   modal.classList.remove('hidden');
 };
  
- window.deleteHighlight = async function(id) {
+ window.triggerHighlight = async function() {
+  if (!confirm('手动生成精华视频：将分析最近一天有录像的文件，可能需要几分钟，确定继续？')) return;
+  try {
+    const res = await fetch('/api/highlights/trigger', { method: 'POST' });
+    const data = await res.json();
+    if (data.status === 'ok') {
+      toast(data.message || '已开始生成精华视频，请稍后刷新查看', 'success');
+      setTimeout(() => renderHighlights(document.getElementById('page-content')), 800);
+    } else {
+      toast(data.message || '触发失败', 'error');
+    }
+  } catch (e) {
+    toast(`触发失败: ${e.message}`, 'error');
+  }
+};
+
+window.deleteHighlight = async function(id) {
    if (!confirm('确定删除这个精华视频？')) return;
    try {
      await API.del(`/api/highlights/${id}`);

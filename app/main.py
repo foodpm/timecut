@@ -156,7 +156,14 @@ from web.routes.settings import register_restart_callback, register_delete_camer
 from web.routes.highlights import register_highlight_callback
 from web.routes.recordings import register_control_callback
 register_restart_callback(trigger_restart_recording)
-register_highlight_callback(lambda: scheduler.run_daily_highlight("2026-08-01"))
+
+
+async def trigger_manual_highlight(date: str):
+    """手动生成指定日期的精华视频"""
+    await scheduler.run_daily_highlight(date)
+
+
+register_highlight_callback(trigger_manual_highlight)
 register_control_callback("start", trigger_start_recording)
 register_control_callback("stop", trigger_stop_recording)
 register_delete_camera_callback(trigger_delete_camera)

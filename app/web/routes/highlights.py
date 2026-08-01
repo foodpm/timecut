@@ -139,8 +139,23 @@ def delete_highlight(highlight_id: int):
 
 @router.post("/trigger")
 async def trigger_highlight():
-    """手动触发精华检测"""
-    if _trigger_highlight_callback:
-        await _trigger_highlight_callback()
-        return {"status": "ok", "message": "精华检测已触发"}
-    return {"status": "error", "message": "精华检测未注册"}
+    """手动触发精华检测：分析最近一个有录像的日期（后台执行，立即返回）"""
+    if not _trigger_highlight_callback:
+        return {"status": "error", "message": "精华检测未注册"}
+    date = _find_latest_recording_date()
+    if not date:
+        return {"status": "error", "message": "没有可用的录像，无法生成精华视频"}
+    import asyncio
+    asyncio.create_task(_trigger_highlight_callback(date))
+    return {"status": "ok", "message": f"已开始生成 {date} 的精华视频，请稍后刷新查看"}
+
+
+def _find_latest_recording_date() -> str | None:
+    """找到最近一个有录像文件的日期目录"""
+    rec_dir = Path(settings.data_dir) / "recordings"
+    if not rec_dir.exists():
+        return None
+    for d in sorted((x.name for x in rec_dir.iterdir() if x.is_dir()), reverse=True):
+        if list((rec_dir / d).glob("*.mp4")):
+            return d
+    return None
