@@ -539,12 +539,14 @@ window.deleteHighlight = async function(id) {
  async function pollDiaryStatus() {
    try {
      const status = await API.get('/api/diary/status');
+     const page = location.hash.slice(1) || 'dashboard';
      if (!status.running) {
        toast(status.message || '日记生成完成', status.error ? 'error' : 'success');
-       renderDiary(document.getElementById('page-content'));
+       // 仅停留在日记页时刷新，避免覆盖其他页面内容
+       if (page === 'diary') renderDiary(document.getElementById('page-content'));
        return;
      }
-     renderDiary(document.getElementById('page-content'));
+     if (page === 'diary') renderDiary(document.getElementById('page-content'));
    } catch (e) { /* 忽略 */ }
  }
 
