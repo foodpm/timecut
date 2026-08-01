@@ -1,10 +1,15 @@
 """录像文件浏览 API"""
 
-from fastapi import APIRouter, Query, HTTPException
+import logging
+import subprocess
+
+from fastapi import APIRouter, Query, HTTPException, Response
 from fastapi.responses import FileResponse
 
 from database import get_session, Recording
 from config import settings
+
+logger = logging.getLogger("timecut.api")
 
 router = APIRouter(prefix="/api/recordings", tags=["recordings"])
 
@@ -75,6 +80,35 @@ def play_recording(recording_id: int):
         )
     finally:
         session.close()
+
+
+@router.get("/{recording_id}/thumbnail")
+def recording_thumbnail(recording_id: int):
+    """返回录像缩略图（首次请求时用 FFmpeg 提取一帧并缓存）"""
+    session = get_session()
+    try:
+        rec = session.query(Recording).filter(Recording.id == recording_id).first()
+        if not rec:
+            raise HTTPException(404, "录像文件不存在")
+    finally:
+        session.close()
+    video_path = settings.recordings_dir / rec.file_path
+    if not video_path.exists():
+        raise HTTPException(404, "录像文件已丢失")
+    thumb_path = settings.recordings_dir / "thumbs" / f"{video_path.stem}.jpg"
+    if not thumb_path.exists():
+        thumb_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            subprocess.run(
+                ["ffmpeg", "-y", "-ss", "2", "-i", str(video_path),
+                 "-frames:v", "1", "-vf", "scale=320:-1", "-q:v", "5", str(thumb_path)],
+                capture_output=True, text=True, timeout=30,
+            )
+        except Exception as e:
+            logger.warning(f"生成缩略图失败: {e}")
+        if not thumb_path.exists() or thumb_path.stat().st_size == 0:
+            return Response(status_code=204)
+    return FileResponse(str(thumb_path), media_type="image/jpeg")
 
 
 @router.get("/dates")

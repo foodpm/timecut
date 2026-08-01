@@ -240,14 +240,16 @@ function refreshLive() {
        <div class="bg-timecut-800 rounded-xl border border-timecut-700 overflow-hidden">
          <table class="w-full text-sm">
            <thead><tr class="border-b border-timecut-700 text-timecut-500 text-xs">
-             <th class="text-left py-3 px-4">时间</th>
-             <th class="text-right py-3 px-4">时长</th>
-             <th class="text-right py-3 px-4">大小</th>
-             <th class="text-right py-3 px-4">运动</th>
-           </tr></thead>
-           <tbody>${recs.items.map(r => `
-             <tr class="border-b border-timecut-700/50 hover:bg-timecut-700/30 cursor-pointer" onclick="playRecording(${r.id}, '${r.start_time ? new Date(r.start_time).toLocaleString('zh-CN', { hour12: false }) : ''}')">
-               <td class="py-2.5 px-4 text-timecut-200">${r.start_time ? new Date(r.start_time).toLocaleString('zh-CN', { hour12: false }) : '-'}</td>
+            <th class="text-left py-3 px-4">画面</th>
+            <th class="text-left py-3 px-4">时间</th>
+            <th class="text-right py-3 px-4">时长</th>
+            <th class="text-right py-3 px-4">大小</th>
+            <th class="text-right py-3 px-4">运动</th>
+          </tr></thead>
+          <tbody>${recs.items.map(r => `
+            <tr class="border-b border-timecut-700/50 hover:bg-timecut-700/30 cursor-pointer" onclick="playRecording(${r.id}, '${r.start_time ? new Date(r.start_time).toLocaleString('zh-CN', { hour12: false }) : ''}')">
+              <td class="py-2 px-4"><img src="/api/recordings/${r.id}/thumbnail" class="w-24 h-14 object-cover rounded border border-timecut-700" loading="lazy" onerror="this.style.display='none'"></td>
+              <td class="py-2.5 px-4 text-timecut-200">${r.start_time ? new Date(r.start_time).toLocaleString('zh-CN', { hour12: false }) : '-'}</td>
                <td class="py-2.5 px-4 text-right text-timecut-400">${r.duration ? Math.round(r.duration) + 's' : '-'}</td>
                <td class="py-2.5 px-4 text-right text-timecut-400">${r.file_size_mb} MB</td>
                <td class="py-2.5 px-4 text-right">${r.has_motion ? '<span class="text-green-400">●</span>' : '<span class="text-timecut-600">○</span>'}</td>
@@ -270,11 +272,12 @@ function refreshLive() {
        <div class="bg-timecut-800 rounded-xl border border-timecut-700 overflow-hidden">
          <table class="w-full text-sm">
            <thead><tr class="border-b border-timecut-700 text-timecut-500 text-xs">
-             <th class="text-left py-3 px-4">时间</th><th class="text-right py-3 px-4">时长</th><th class="text-right py-3 px-4">大小</th>
-           </tr></thead>
-           <tbody>${recs.items.map(r => `
-             <tr class="border-b border-timecut-700/50 hover:bg-timecut-700/30 cursor-pointer" onclick="playRecording(${r.id}, '${r.start_time ? new Date(r.start_time).toLocaleString('zh-CN', { hour12: false }) : ''}')">
-               <td class="py-2.5 px-4 text-timecut-200">${r.start_time ? new Date(r.start_time).toLocaleString('zh-CN', { hour12: false }) : '-'}</td>
+            <th class="text-left py-3 px-4">画面</th><th class="text-left py-3 px-4">时间</th><th class="text-right py-3 px-4">时长</th><th class="text-right py-3 px-4">大小</th>
+          </tr></thead>
+          <tbody>${recs.items.map(r => `
+            <tr class="border-b border-timecut-700/50 hover:bg-timecut-700/30 cursor-pointer" onclick="playRecording(${r.id}, '${r.start_time ? new Date(r.start_time).toLocaleString('zh-CN', { hour12: false }) : ''}')">
+              <td class="py-2 px-4"><img src="/api/recordings/${r.id}/thumbnail" class="w-24 h-14 object-cover rounded border border-timecut-700" loading="lazy" onerror="this.style.display='none'"></td>
+              <td class="py-2.5 px-4 text-timecut-200">${r.start_time ? new Date(r.start_time).toLocaleString('zh-CN', { hour12: false }) : '-'}</td>
                <td class="py-2.5 px-4 text-right text-timecut-400">${r.duration ? Math.round(r.duration) + 's' : '-'}</td>
                <td class="py-2.5 px-4 text-right text-timecut-400">${r.file_size_mb} MB</td>
              </tr>
