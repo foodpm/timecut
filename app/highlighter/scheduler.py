@@ -61,10 +61,8 @@ class HighlightScheduler:
         logger.info(f"找到 {len(video_files)} 个录像片段待分析")
         all_segments = []  # list of (MotionSegment, source_file_path)
         for vf in video_files:
-            file_start = self._parse_file_start(vf)
             segments = self._detector.analyze(vf)
             for seg in segments:
-                seg.score = self._apply_time_weight(seg, file_start)
                 all_segments.append((seg, vf))
         if not all_segments:
             logger.info("未检测到运动，跳过精华生成")
@@ -93,22 +91,6 @@ class HighlightScheduler:
             finally:
                 session.close()
         logger.info("===== 每日精华检测完成 =====")
-
-    def _parse_file_start(self, video_path: Path):
-        """从录像文件名解析起始时刻（%Y%m%d_%H%M%S）"""
-        try:
-            return datetime.strptime(video_path.stem, "%Y%m%d_%H%M%S").replace(tzinfo=self._tz)
-        except ValueError:
-            return None
-
-    def _apply_time_weight(self, segment: MotionSegment, file_start: datetime | None) -> float:
-        """时间段加权：夜间(22:00~06:00)家里没人时的动静更重要，分数 ×1.5"""
-        if file_start is None:
-            return segment.score
-        hour = (file_start + timedelta(seconds=segment.start)).hour
-        if hour >= 22 or hour < 6:
-            return min(100, segment.score * 1.5)
-        return segment.score
 
     def stop(self):
         self._scheduler.shutdown(wait=False)
