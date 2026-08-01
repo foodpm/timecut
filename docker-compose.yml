@@ -10,7 +10,7 @@ services:
       - "1984:1984"       # go2rtc Web API / MSE / WebRTC
     # 注意：8888 (HLS) 端口未映射，部分系统（如绿联 NAS）会占用 8888 导致启动失败
     volumes:
-      - ./go2rtc.yaml:/config/go2rtc.yaml:ro
+      - ./go2rtc.yaml:/config/go2rtc.yaml
       - ./storage/go2rtc:/config
     networks:
       - timecut-net
