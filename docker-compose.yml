@@ -32,6 +32,7 @@ services:
     environment:
       - TZ=Asia/Shanghai
       - DATA_DIR=/data
+      - GO2RTC_URL=http://go2rtc:1984
     env_file:
       - .env
     depends_on:

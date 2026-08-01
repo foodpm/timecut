@@ -1,9 +1,7 @@
 name: Build and Push Docker Image
 
+# 手动触发构建（GitHub Actions 页面点击「Run workflow」）
 on:
-  push:
-    branches: [main]
-    tags: ["v*"]
   workflow_dispatch:
 
 jobs:

@@ -1,6 +1,10 @@
 """系统设置 API"""
 
+import json
 import logging
+import urllib.request
+from urllib.parse import urlparse
+
 from fastapi import APIRouter
 from pydantic import BaseModel
 
@@ -41,6 +45,37 @@ def get_settings():
         "highlight_schedule_time": settings.highlight_schedule_time,
         "detection_sensitivity": settings.detection_sensitivity,
     }
+
+
+@router.get("/go2rtc/streams")
+def get_go2rtc_streams():
+    """读取 go2rtc 视频流列表，自动生成每个流的 RTSP 地址"""
+    try:
+        req = urllib.request.Request(
+            f"{settings.go2rtc_url}/api/streams",
+            headers={"Accept": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            data = json.loads(resp.read())
+    except Exception as e:
+        logger.warning(f"读取 go2rtc 流失败: {e}")
+        return {"streams": [], "error": f"无法连接 go2rtc: {e}"}
+
+    # 从 go2rtc API 地址推断 RTSP 主机（Docker 内为 go2rtc，本地为 localhost）
+    parsed = urlparse(settings.go2rtc_url)
+    rtsp_host = parsed.hostname or "localhost"
+
+    streams = []
+    for name, info in (data or {}).items():
+        producers = info.get("producers") or []
+        streams.append({
+            "name": name,
+            "rtsp_url": f"rtsp://{rtsp_host}:8554/{name}",
+            "online": len(producers) > 0,
+            "source": producers[0].get("url") if producers else None,
+        })
+    streams.sort(key=lambda s: s["name"])
+    return {"streams": streams}
 
 
 @router.put("")

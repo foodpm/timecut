@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     web_port: int = 8090
     data_dir: str = "/data"
     tz: str = "Asia/Shanghai"
+    go2rtc_url: str = "http://localhost:1984"
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 

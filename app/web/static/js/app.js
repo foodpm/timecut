@@ -313,7 +313,10 @@ function refreshLive() {
  async function renderSettings(el) {
    el.innerHTML = '<div class="text-timecut-400 text-center py-20"><div class="animate-spin w-8 h-8 border-2 border-accent-500 border-t-transparent rounded-full mx-auto mb-3"></div>加载中...</div>';
    try {
-     const s = await API.get('/api/settings');
+     const [s, g] = await Promise.all([
+       API.get('/api/settings'),
+       API.get('/api/settings/go2rtc/streams').catch(() => ({streams: [], error: 'go2rtc 不可用'})),
+     ]);
      el.innerHTML = `
      <div class="max-w-2xl space-y-6">
        <!-- 摄像头设置 -->
@@ -322,6 +325,21 @@ function refreshLive() {
          <div class="space-y-4">
            <div><label class="block text-xs text-timecut-500 mb-1.5">摄像头名称</label><input id="s-name" class="w-full bg-timecut-900 border border-timecut-700 rounded-lg px-3 py-2 text-sm text-timecut-200 focus:outline-none focus:border-accent-500" value="${s.camera_name || ''}"></div>
            <div><label class="block text-xs text-timecut-500 mb-1.5">RTSP 地址</label><input id="s-rtsp" class="w-full bg-timecut-900 border border-timecut-700 rounded-lg px-3 py-2 text-sm text-timecut-200 font-mono focus:outline-none focus:border-accent-500" value="${s.camera_rtsp_url || ''}" placeholder="rtsp://user:password@ip:554/stream"></div>
+           <div>
+             <label class="block text-xs text-timecut-500 mb-1.5">go2rtc 视频流（点击「使用」自动填入并保存）</label>
+             <div class="space-y-2 max-h-52 overflow-y-auto pr-1">
+               ${g.streams.map(st => `
+                 <div class="flex items-center justify-between gap-2 bg-timecut-900 border border-timecut-700 rounded-lg px-3 py-2">
+                   <div class="min-w-0">
+                     <div class="text-xs text-timecut-200 flex items-center gap-1.5">${st.name} <span class="text-[10px] ${st.online ? 'text-green-400' : 'text-timecut-600'}">${st.online ? '●在线' : '○离线'}</span></div>
+                     <div class="text-[10px] text-timecut-500 font-mono truncate">${st.rtsp_url}</div>
+                   </div>
+                   <button onclick="useGo2RtcStream('${st.rtsp_url}')" class="btn shrink-0 text-xs bg-accent-600 hover:bg-accent-500 text-white px-2.5 py-1 rounded">使用</button>
+                 </div>
+               `).join('')}
+               ${!g.streams.length ? `<div class="text-xs text-timecut-500 text-center py-3">${g.error ? '⚠ ' + g.error : '暂无 go2rtc 视频流'}</div>` : ''}
+             </div>
+           </div>
          </div>
        </div>
  
@@ -369,7 +387,15 @@ function refreshLive() {
   btn.querySelector('span').className = `absolute left-0 top-0.5 w-5 h-5 bg-white rounded-full transition-transform ${enabled ? 'translate-x-[26px]' : 'translate-x-0.5'}`;
 };
  
- window.saveSettings = async function() {
+ window.useGo2RtcStream = async function(rtsp) {
+  const input = document.getElementById('s-rtsp');
+  if (!input) return;
+  input.value = rtsp;
+  toast('已选用 go2rtc 视频流，正在保存...', 'info');
+  await saveSettings();
+};
+
+window.saveSettings = async function() {
    const data = {
      camera_name: document.getElementById('s-name')?.value,
      camera_rtsp_url: document.getElementById('s-rtsp')?.value,
