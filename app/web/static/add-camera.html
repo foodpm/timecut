@@ -6,27 +6,40 @@
 <title>添加摄像头</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
-body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #cbd5e1; padding: 16px; }
-h2 { color: #f1f5f9; font-size: 16px; margin-bottom: 12px; }
-.brand { display: block; width: 100%; background: #1e293b; color: #e2e8f0; cursor: pointer; padding: 12px; border: 1px solid #334155; border-radius: 8px; text-align: left; font-size: 14px; font-weight: 600; margin-bottom: 8px; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #cbd5e1; padding: 20px; }
+h2 { color: #f1f5f9; font-size: 17px; font-weight: 600; margin-bottom: 16px; }
+
+/* 品牌选择按钮 */
+.brand { display: flex; align-items: center; justify-content: space-between; width: 100%; background: #1e293b; color: #e2e8f0; cursor: pointer; padding: 14px 16px; border: 1px solid #334155; border-radius: 10px; text-align: left; font-size: 14px; font-weight: 600; margin-bottom: 10px; transition: all .15s; }
 .brand:hover { background: #334155; }
-.brand.active { border-color: #2563eb; }
-.panel { display: none; flex-direction: column; gap: 10px; margin-bottom: 14px; padding: 12px; background: #1e293b; border: 1px solid #334155; border-radius: 8px; }
+.brand.active { border-color: #2563eb; background: #1e293b; }
+.brand::after { content: '›'; color: #64748b; font-size: 18px; }
+
+/* 面板 */
+.panel { display: none; flex-direction: column; gap: 14px; margin-bottom: 18px; padding: 16px; background: #1e293b; border: 1px solid #334155; border-radius: 10px; }
 .panel.show { display: flex; }
-.row { display: flex; flex-direction: column; gap: 4px; }
-label { font-size: 12px; color: #94a3b8; }
-input, select { background: #0f172a; border: 1px solid #334155; color: #e2e8f0; padding: 8px 10px; border-radius: 6px; font-size: 13px; width: 100%; outline: none; }
+.row { display: flex; flex-direction: column; gap: 6px; }
+label { font-size: 12px; color: #94a3b8; font-weight: 500; }
+input, select { background: #0f172a; border: 1px solid #334155; color: #e2e8f0; padding: 9px 12px; border-radius: 8px; font-size: 13px; width: 100%; outline: none; transition: border-color .15s; }
 input:focus, select:focus { border-color: #2563eb; }
-button.action { background: #2563eb; color: #fff; border: none; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500; align-self: flex-start; }
+input::placeholder { color: #475569; }
+
+/* 操作按钮：统一右对齐 */
+.btn-row { display: flex; justify-content: flex-end; gap: 10px; }
+button.action { background: #2563eb; color: #fff; border: none; padding: 9px 20px; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 500; transition: background .15s; }
 button.action:hover { background: #1d4ed8; }
-button.action.small { padding: 4px 10px; font-size: 12px; }
-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 4px; }
-th, td { border: 1px solid #334155; padding: 6px 8px; text-align: left; word-break: break-word; }
-th { background: #0f172a; color: #94a3b8; font-weight: 500; }
-.captcha-img { max-width: 180px; border-radius: 6px; border: 1px solid #334155; }
-#status { color: #22c55e; font-size: 12px; margin-top: 8px; min-height: 16px; }
+button.action.small { padding: 5px 12px; font-size: 12px; }
+
+/* 表格 */
+table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 2px; }
+th, td { border: 1px solid #334155; padding: 8px 10px; text-align: left; word-break: break-word; }
+th { background: #0f172a; color: #94a3b8; font-weight: 500; white-space: nowrap; }
+td { vertical-align: middle; }
+
+.captcha-img { max-width: 180px; border-radius: 8px; border: 1px solid #334155; }
+#status { color: #22c55e; font-size: 12px; margin-top: 10px; min-height: 16px; }
 #status.err { color: #ef4444; }
-.hint { font-size: 11px; color: #64748b; }
+.hint { font-size: 11px; color: #64748b; line-height: 1.5; }
 </style>
 </head>
 <body>
@@ -42,32 +55,40 @@ th { background: #0f172a; color: #94a3b8; font-weight: 500; }
     <label>视频流地址（RTSP / HTTP）</label>
     <input id="m-src" placeholder="rtsp://user:password@192.168.1.100:554/stream">
   </div>
-  <button class="action" onclick="manualAdd()">添加</button>
-  <div class="hint">适用于已知视频流地址的用户，如海康/大华等品牌摄像头。</div>
+  <div class="btn-row">
+    <button class="action" onclick="manualAdd()">添加</button>
+  </div>
+  <div class="hint">适用于已知视频流地址的用户，如海康 / 大华等品牌摄像头。</div>
 </div>
 
 <button class="brand" id="btn-xiaomi">小米 / 米家（账号登录）</button>
 <div class="panel" id="panel-xiaomi">
   <div id="xiaomi-login">
     <div class="row">
-      <label>小米账号</label>
-      <input id="xm-user" placeholder="手机号 / 邮箱">
+      <label>小米 ID</label>
+      <input id="xm-user" placeholder="请输入小米 ID">
     </div>
     <div class="row">
       <label>密码</label>
-      <input id="xm-pass" type="password" placeholder="密码">
+      <input id="xm-pass" type="password" placeholder="请输入密码">
     </div>
-    <button class="action" onclick="xiaomiLogin()">登录</button>
+    <div class="btn-row">
+      <button class="action" onclick="xiaomiLogin()">登录</button>
+    </div>
   </div>
   <div id="xiaomi-captcha" style="display:none">
     <div class="row"><label>图形验证码</label><img id="xm-captcha-img" class="captcha-img"></div>
     <div class="row"><input id="xm-captcha" placeholder="输入图形验证码"></div>
-    <button class="action" onclick="xiaomiSend('captcha')">提交</button>
+    <div class="btn-row">
+      <button class="action" onclick="xiaomiSend('captcha')">提交</button>
+    </div>
   </div>
   <div id="xiaomi-verify" style="display:none">
     <div class="row"><label id="xm-verify-label">短信 / 邮箱验证码</label></div>
     <div class="row"><input id="xm-verify" placeholder="输入验证码"></div>
-    <button class="action" onclick="xiaomiSend('verify')">提交</button>
+    <div class="btn-row">
+      <button class="action" onclick="xiaomiSend('verify')">提交</button>
+    </div>
   </div>
   <div id="xiaomi-devices" style="display:none">
     <div class="row">
@@ -85,7 +106,9 @@ th { background: #0f172a; color: #94a3b8; font-weight: 500; }
         <option value="us">美国</option>
       </select>
     </div>
-    <button class="action" onclick="xiaomiLoadDevices()">加载设备列表</button>
+    <div class="btn-row">
+      <button class="action" onclick="xiaomiLoadDevices()">加载设备列表</button>
+    </div>
     <table><thead><tr><th>名称</th><th>地址</th><th></th></tr></thead><tbody id="xm-table"></tbody></table>
   </div>
 </div>
@@ -96,7 +119,9 @@ th { background: #0f172a; color: #94a3b8; font-weight: 500; }
     <label>ONVIF 设备地址（可选，留空自动扫描局域网）</label>
     <input id="onvif-src" placeholder="onvif://user:password@192.168.1.123:80">
   </div>
-  <button class="action" onclick="onvifScan()">扫描 / 测试</button>
+  <div class="btn-row">
+    <button class="action" onclick="onvifScan()">扫描 / 测试</button>
+  </div>
   <table><thead><tr><th>名称</th><th>地址</th><th></th></tr></thead><tbody id="onvif-table"></tbody></table>
 </div>
 

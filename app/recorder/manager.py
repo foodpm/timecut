@@ -20,11 +20,67 @@ class RecorderManager:
         self._process: asyncio.subprocess.Process | None = None
         self._running = False
         self._stopping = False
+        self._scheduler_task: asyncio.Task | None = None
         self._tz = ZoneInfo(settings.tz)
 
     @property
     def is_recording(self) -> bool:
         return self._running
+
+    # ── 录制规则调度（时间段 + 间隔）──
+    def start_scheduler(self):
+        """启动录制规则调度循环"""
+        if self._scheduler_task and not self._scheduler_task.done():
+            return
+        self._scheduler_task = asyncio.create_task(self._schedule_loop())
+        logger.info("录制规则调度已启动")
+
+    def stop_scheduler(self):
+        if self._scheduler_task:
+            self._scheduler_task.cancel()
+            self._scheduler_task = None
+        logger.info("录制规则调度已停止")
+
+    async def _schedule_loop(self):
+        while True:
+            await asyncio.sleep(10)
+            try:
+                await self._apply_schedule()
+            except Exception as e:
+                logger.error(f"录制规则调度异常: {e}")
+
+    async def _apply_schedule(self):
+        """根据录制时间段和间隔决定录制启停"""
+        if not settings.recording_enabled:
+            return
+        should = self._should_record()
+        if should and not self._running:
+            await self.start()
+        elif not should and self._running:
+            await self.stop()
+
+    def _should_record(self) -> bool:
+        """是否应当录制（时间段 + 间隔规则）"""
+        now = datetime.now(self._tz)
+        # 1. 录制时间段判断（支持跨午夜）
+        try:
+            start = datetime.strptime(settings.recording_start_time, "%H:%M").time()
+            end = datetime.strptime(settings.recording_end_time, "%H:%M").time()
+        except ValueError:
+            return True
+        t = now.time()
+        in_window = (start <= t <= end) if start <= end else (t >= start or t <= end)
+        if not in_window:
+            return False
+        # 2. 录制间隔判断（0 = 连续录制）
+        interval = settings.recording_interval_minutes
+        if interval <= 0:
+            return True
+        seg = settings.recording_segment_minutes
+        if seg >= interval:
+            return True
+        total_min = now.hour * 60 + now.minute
+        return (total_min % interval) < seg
 
     def _ensure_dirs(self):
         settings.recordings_dir.mkdir(parents=True, exist_ok=True)
@@ -100,7 +156,7 @@ class RecorderManager:
             )
             # 录制进程异常退出后自动恢复（等待几秒避免 RTSP 瞬时故障时死循环）
             await asyncio.sleep(5)
-            if not self._stopping and not self._running:
+            if not self._stopping and not self._running and self._should_record():
                 logger.info("录制进程异常退出，正在自动重启...")
                 await self.start()
         else:

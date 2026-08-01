@@ -368,6 +368,24 @@ function refreshLive() {
            <div><label class="block text-xs text-timecut-500 mb-1.5">分段时长（分钟）</label><input id="s-segment" type="number" min="5" max="1440" class="w-32 bg-timecut-900 border border-timecut-700 rounded-lg px-3 py-2 text-sm text-timecut-200 focus:outline-none focus:border-accent-500" value="${s.recording_segment_minutes}"></div>
          </div>
        </div>
+
+       <!-- 录制规则 -->
+       <div class="bg-timecut-800 rounded-xl p-5 border border-timecut-700">
+         <h3 class="text-sm font-semibold text-timecut-300 mb-4">录制规则</h3>
+         <div class="space-y-4">
+           <div><label class="block text-xs text-timecut-500 mb-1.5">录制间隔（分钟，0 = 连续录制）</label>
+             <div class="flex items-center gap-3">
+               <input id="s-interval" type="number" min="0" max="1440" class="w-32 bg-timecut-900 border border-timecut-700 rounded-lg px-3 py-2 text-sm text-timecut-200 focus:outline-none focus:border-accent-500" value="${s.recording_interval_minutes ?? 0}">
+               <span class="text-xs text-timecut-500">每隔该分钟数录制一次，每次录「分段时长」分钟</span>
+             </div>
+           </div>
+           <div class="grid grid-cols-2 gap-4">
+             <div><label class="block text-xs text-timecut-500 mb-1.5">每天开始录制</label><input id="s-start-time" type="time" class="w-full bg-timecut-900 border border-timecut-700 rounded-lg px-3 py-2 text-sm text-timecut-200 focus:outline-none focus:border-accent-500" value="${s.recording_start_time || '00:00'}"></div>
+             <div><label class="block text-xs text-timecut-500 mb-1.5">每天结束录制</label><input id="s-end-time" type="time" class="w-full bg-timecut-900 border border-timecut-700 rounded-lg px-3 py-2 text-sm text-timecut-200 focus:outline-none focus:border-accent-500" value="${s.recording_end_time || '23:59'}"></div>
+           </div>
+           <div class="text-xs text-timecut-500">支持跨午夜时段，如 22:00 至 06:00 表示夜间录制。</div>
+         </div>
+       </div>
  
        <!-- 精华设置 -->
        <div class="bg-timecut-800 rounded-xl p-5 border border-timecut-700">
@@ -476,6 +494,9 @@ window.saveSettings = async function() {
      camera_rtsp_url: document.getElementById('s-rtsp')?.value,
      recording_retention_days: parseInt(document.getElementById('s-retention')?.value),
      recording_segment_minutes: parseInt(document.getElementById('s-segment')?.value),
+     recording_interval_minutes: parseInt(document.getElementById('s-interval')?.value) || 0,
+     recording_start_time: document.getElementById('s-start-time')?.value || '00:00',
+     recording_end_time: document.getElementById('s-end-time')?.value || '23:59',
      highlight_enabled: document.getElementById('s-highlight-toggle')?.classList.contains('bg-accent-600'),
      highlight_duration_minutes: parseInt(document.getElementById('s-hl-duration')?.value),
      highlight_schedule_time: document.getElementById('s-hl-time')?.value,

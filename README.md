@@ -122,6 +122,9 @@ cd app && python main.py
 | `CAMERA_NAME` | 摄像头 | 摄像头显示名称 |
 | `RECORDING_RETENTION_DAYS` | 7 | 录像保留天数，超期自动清理 |
 | `RECORDING_SEGMENT_MINUTES` | 60 | 录像分段时长（分钟） |
+| `RECORDING_INTERVAL_MINUTES` | 0 | 录制间隔（分钟，0=连续录制；如 30=每半小时录一段） |
+| `RECORDING_START_TIME` | 00:00 | 每天开始录制时间（24 小时制，支持跨午夜） |
+| `RECORDING_END_TIME` | 23:59 | 每天结束录制时间（24 小时制） |
 | `HIGHLIGHT_DURATION_MINUTES` | 5 | 精华视频时长（分钟） |
 | `HIGHLIGHT_SCHEDULE_TIME` | 03:00 | 每日精华检测时间（24 小时制） |
 | `HIGHLIGHT_ENABLED` | true | 是否启用精华检测 |

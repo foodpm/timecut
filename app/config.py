@@ -9,6 +9,9 @@ class Settings(BaseSettings):
     camera_name: str = "摄像头"
     recording_retention_days: int = 7
     recording_segment_minutes: int = 60
+    recording_interval_minutes: int = 0
+    recording_start_time: str = "00:00"
+    recording_end_time: str = "23:59"
     highlight_duration_minutes: int = 5
     highlight_schedule_time: str = "03:00"
     highlight_enabled: bool = True

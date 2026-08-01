@@ -47,8 +47,11 @@ async def lifespan(app: FastAPI):
 
     _init_default_camera()
 
-    if settings.camera_rtsp_url and settings.recording_enabled:
-        await recorder.start()
+    if settings.camera_rtsp_url:
+        # 启动录制规则调度（时间段 + 间隔）
+        recorder.start_scheduler()
+        if settings.recording_enabled:
+            await recorder.start()
         recorder.scan_new_recordings()
         # 定时扫描新录像文件（每30秒）
         async def periodic_scan():
@@ -70,6 +73,7 @@ async def lifespan(app: FastAPI):
     scheduler.stop()
     if scan_task:
         scan_task.cancel()
+    recorder.stop_scheduler()
     await recorder.stop()
     logger.info("TimeCut 已关闭")
 

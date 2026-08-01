@@ -21,6 +21,9 @@ _ENV_MAP = {
     "camera_rtsp_url": "CAMERA_RTSP_URL",
     "recording_retention_days": "RECORDING_RETENTION_DAYS",
     "recording_segment_minutes": "RECORDING_SEGMENT_MINUTES",
+    "recording_interval_minutes": "RECORDING_INTERVAL_MINUTES",
+    "recording_start_time": "RECORDING_START_TIME",
+    "recording_end_time": "RECORDING_END_TIME",
     "highlight_duration_minutes": "HIGHLIGHT_DURATION_MINUTES",
     "highlight_enabled": "HIGHLIGHT_ENABLED",
     "highlight_schedule_time": "HIGHLIGHT_SCHEDULE_TIME",
@@ -68,6 +71,9 @@ class SettingsUpdate(BaseModel):
     camera_rtsp_url: str | None = None
     recording_retention_days: int | None = None
     recording_segment_minutes: int | None = None
+    recording_interval_minutes: int | None = None
+    recording_start_time: str | None = None
+    recording_end_time: str | None = None
     highlight_duration_minutes: int | None = None
     highlight_enabled: bool | None = None
     highlight_schedule_time: str | None = None
@@ -81,6 +87,9 @@ def get_settings():
         "camera_rtsp_url": settings.camera_rtsp_url,
         "recording_retention_days": settings.recording_retention_days,
         "recording_segment_minutes": settings.recording_segment_minutes,
+        "recording_interval_minutes": settings.recording_interval_minutes,
+        "recording_start_time": settings.recording_start_time,
+        "recording_end_time": settings.recording_end_time,
         "highlight_duration_minutes": settings.highlight_duration_minutes,
         "highlight_enabled": settings.highlight_enabled,
         "highlight_schedule_time": settings.highlight_schedule_time,
@@ -250,6 +259,15 @@ def update_settings(data: SettingsUpdate):
     if data.recording_segment_minutes is not None:
         settings.recording_segment_minutes = data.recording_segment_minutes
         changes["recording_segment_minutes"] = data.recording_segment_minutes
+    if data.recording_interval_minutes is not None:
+        settings.recording_interval_minutes = data.recording_interval_minutes
+        changes["recording_interval_minutes"] = data.recording_interval_minutes
+    if data.recording_start_time is not None:
+        settings.recording_start_time = data.recording_start_time
+        changes["recording_start_time"] = data.recording_start_time
+    if data.recording_end_time is not None:
+        settings.recording_end_time = data.recording_end_time
+        changes["recording_end_time"] = data.recording_end_time
     if data.highlight_duration_minutes is not None:
         settings.highlight_duration_minutes = data.highlight_duration_minutes
         changes["highlight_duration_minutes"] = data.highlight_duration_minutes
