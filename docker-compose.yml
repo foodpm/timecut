@@ -6,14 +6,12 @@ services:
     image: alexxit/go2rtc:latest
     container_name: timecut-go2rtc
     restart: unless-stopped
-    ports:
-      - "1984:1984"       # go2rtc Web API / MSE / WebRTC
-    # 注意：8888 (HLS) 端口未映射，部分系统（如绿联 NAS）会占用 8888 导致启动失败
+    # host 网络：小米摄像头 P2P 需要能直连 go2rtc 的 IP，
+    # 容器 bridge 内网 IP（如 172.20.x.x）局域网摄像头无法访问，会导致连接超时
+    network_mode: host
     volumes:
       - ./go2rtc.yaml:/config/go2rtc.yaml
       - ./storage/go2rtc:/config
-    networks:
-      - timecut-net
 
   # ── 核心应用（录像 + 精华检测 + Web UI）──
   # 使用 GitHub Actions 自动构建的预编译镜像，NAS 无需编译，直接拉取
@@ -32,7 +30,9 @@ services:
     environment:
       - TZ=Asia/Shanghai
       - DATA_DIR=/data
-      - GO2RTC_URL=http://go2rtc:1984
+      - GO2RTC_URL=http://host.docker.internal:1984
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     env_file:
       - .env
     depends_on:
