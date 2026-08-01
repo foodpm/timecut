@@ -69,9 +69,12 @@ class HighlightScheduler:
             logger.info("未检测到运动，跳过精华生成")
             return
         logger.info(f"共检测到 {len(all_segments)} 个运动片段")
+        ai_success = False
         if settings.ai_enabled:
             logger.info("启用大模型识别精华片段")
-            all_segments = AISelector().score_segments(all_segments)
+            all_segments, ai_success = AISelector().score_segments(all_segments)
+            if not ai_success:
+                logger.warning("大模型调用全部失败，自动降级为系统自动（运动检测）")
         output = self._clipper.create_highlight(
             video_files=video_files, segments=all_segments,
         )
@@ -84,7 +87,7 @@ class HighlightScheduler:
                     file_size=output.stat().st_size,
                     duration=self._clipper.target_duration,
                     date=date_str, clip_count=len(all_segments),
-                    strategy="ai" if settings.ai_enabled else "motion",
+                    strategy="ai" if (settings.ai_enabled and ai_success) else "motion",
                 )
                 session.add(hl)
                 session.commit()

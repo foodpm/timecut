@@ -26,19 +26,23 @@ class AISelector:
 
     def score_segments(
         self, segments: list[tuple[MotionSegment, Path]]
-    ) -> list[tuple[MotionSegment, Path]]:
+    ) -> tuple[list[tuple[MotionSegment, Path]], bool]:
         """对运动片段用大模型打分，score 更新为 AI 分数
 
         只分析运动分数最高的 max_segments 个候选片段，控制 API 成本；
         AI 识别失败的片段保留原运动分数。
+
+        返回 (segments, ai_success)：ai_success 表示是否至少有一个片段成功完成 AI 打分。
+        全部失败（如 API 不可用 / Key 无效）时调用方可自动降级为系统自动模式。
         """
         if not self.api_key:
             logger.error("未配置大模型 API Key，跳过 AI 识别，使用运动检测分数")
-            return segments
+            return segments, False
         sorted_segs = sorted(segments, key=lambda s: s[0].score, reverse=True)
         candidates = sorted_segs[: self.max_segments]
         logger.info(f"AI 识别 {len(candidates)} 个候选片段 (model={self.model})")
         scored = []
+        success = 0
         for seg, src in candidates:
             frame = self._extract_frame(seg, src)
             if not frame:
@@ -47,8 +51,9 @@ class AISelector:
             ai_score = self._score_frame(frame, seg)
             if ai_score is not None:
                 seg.score = ai_score
+                success += 1
             scored.append((seg, src))
-        return scored
+        return scored, success > 0
 
     def _extract_frame(self, seg: MotionSegment, src: Path) -> bytes | None:
         """提取片段中间一帧的 JPEG 字节"""

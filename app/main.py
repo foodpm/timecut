@@ -106,7 +106,7 @@ def _init_default_camera():
 app = FastAPI(
     title="TimeCut",
     description="NAS 监控摄像头录像与精华视频管理系统",
-    version="0.1.0",
+    version="0.4.0",
     lifespan=lifespan,
 )
 
@@ -179,7 +179,7 @@ def health():
     return {
         "status": "ok",
         "recording": recorder.is_recording,
-        "version": "0.1.0",
+        "version": "0.4.0",
     }
 
 

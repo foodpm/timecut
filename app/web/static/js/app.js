@@ -474,7 +474,7 @@ window.deleteHighlight = async function(id) {
                  <button onclick="testAiConnection()" class="btn bg-timecut-700 hover:bg-timecut-600 text-timecut-200 px-4 py-2 rounded-lg text-xs">测试连接</button>
                  <span id="ai-test-result" class="text-xs text-timecut-500"></span>
                </div>
-               <div class="text-[11px] text-timecut-500 leading-relaxed">大模型模式：对运动片段抽帧，调用多模态模型判断画面价值（人/车/包裹等），只分析分数最高的片段以控制成本。支持 OpenAI 兼容接口，如通义千问 qwen-vl、豆包等。</div>
+               <div class="text-[11px] text-timecut-500 leading-relaxed">大模型模式：对运动片段抽帧，调用多模态模型判断画面价值（人/车/包裹等），只分析分数最高的片段以控制成本。支持 OpenAI 兼容接口，如通义千问 qwen-vl、豆包等具有视觉理解能力的多模态模型。</div>
              </div>
            </div>
          </div>
