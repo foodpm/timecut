@@ -119,10 +119,13 @@ class RecorderManager:
             # 复用 go2rtc 转码后的 H264/AAC，直接封装不转码，降低 NAS CPU 负担、减少断流
             "-c:v", "copy",
             "-c:a", "copy",
-            "-movflags", "+faststart",
+            # 分片式 MP4：按关键帧分片，避免时间戳抖动时
+            # "Separator is not found, and chunk exceed the limit" 导致录制反复崩溃重启
+            "-movflags", "+frag_keyframe+empty_moov",
             "-f", "segment",
             "-segment_time", str(seg_sec),
             "-segment_format", "mp4",
+            "-segment_format_options", "movflags=+frag_keyframe+empty_moov",
             "-reset_timestamps", "1",
             "-strftime", "1",
             seg_pattern,
