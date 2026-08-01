@@ -97,7 +97,8 @@
        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
          <div class="stat-card bg-timecut-800 rounded-xl p-5 border border-timecut-700">
            <div class="text-timecut-500 text-xs mb-1">录制状态</div>
-           <div class="text-2xl font-bold text-timecut-100">${health.recording ? '<span class="text-green-400">●</span> 录制中' : '<span class="text-yellow-400">●</span> 已停止'}</div>
+           <div class="text-2xl font-bold text-timecut-100 mb-3">${health.recording ? '<span class="text-green-400">●</span> 录制中' : '<span class="text-yellow-400">●</span> 已停止'}</div>
+           <button onclick="toggleRecording()" class="btn w-full text-center text-sm px-3 py-2 rounded-lg ${health.recording ? 'bg-red-600/20 text-red-400 hover:bg-red-600/30' : 'bg-green-600 text-white hover:bg-green-500'}">${health.recording ? '■ 停止录制' : '● 开始录制'}</button>
          </div>
          <div class="stat-card bg-timecut-800 rounded-xl p-5 border border-timecut-700">
            <div class="text-timecut-500 text-xs mb-1">录像总数</div>
@@ -143,7 +144,19 @@
    } catch (e) { el.innerHTML = `<div class="text-red-400 text-center py-20">加载失败: ${e.message}</div>`; }
  }
  
- // ══════════ 实时画面 ══════════
+ // ══════════ 录制控制 ══════════
+window.toggleRecording = async function() {
+  try {
+    const h = await API.get('/api/health');
+    const action = h.recording ? 'stop' : 'start';
+    await API.post(`/api/recordings/control/${action}`);
+    toast(action === 'start' ? '已开始录制' : '已停止录制', 'success');
+    updateStatus();
+    renderDashboard(document.getElementById('page-content'));
+  } catch (e) { toast(`操作失败: ${e.message}`, 'error'); }
+};
+
+// ══════════ 实时画面 ══════════
 async function loadGo2RtcPlayer() {
   const player = document.getElementById('live-player');
   if (!player) return;
@@ -325,7 +338,7 @@ function refreshLive() {
        <div class="bg-timecut-800 rounded-xl p-5 border border-timecut-700">
          <h3 class="text-sm font-semibold text-timecut-300 mb-4">精华视频设置</h3>
          <div class="space-y-4">
-           <div class="flex items-center gap-3"><label class="text-xs text-timecut-500">自动剪辑</label><button id="s-highlight-toggle" onclick="toggleHighlight()" class="btn relative w-12 h-6 rounded-full transition-colors ${s.highlight_enabled ? 'bg-accent-600' : 'bg-timecut-600'}"><span class="absolute top-0.5 w-5 h-5 bg-white rounded-full transition-transform ${s.highlight_enabled ? 'translate-x-6' : 'translate-x-0.5'}"></span></button></div>
+           <div class="flex items-center gap-3"><label class="text-xs text-timecut-500">自动剪辑</label><button id="s-highlight-toggle" onclick="toggleHighlight()" class="btn relative w-12 h-6 rounded-full transition-colors ${s.highlight_enabled ? 'bg-accent-600' : 'bg-timecut-600'}"><span class="absolute left-0 top-0.5 w-5 h-5 bg-white rounded-full transition-transform ${s.highlight_enabled ? 'translate-x-[26px]' : 'translate-x-0.5'}"></span></button></div>
            <div><label class="block text-xs text-timecut-500 mb-1.5">精华视频时长（分钟）</label><input id="s-hl-duration" type="number" min="1" max="30" class="w-32 bg-timecut-900 border border-timecut-700 rounded-lg px-3 py-2 text-sm text-timecut-200 focus:outline-none focus:border-accent-500" value="${s.highlight_duration_minutes}"></div>
            <div><label class="block text-xs text-timecut-500 mb-1.5">每日检测时间</label><input id="s-hl-time" type="time" class="w-36 bg-timecut-900 border border-timecut-700 rounded-lg px-3 py-2 text-sm text-timecut-200 focus:outline-none focus:border-accent-500" value="${s.highlight_schedule_time}"></div>
            <div><label class="block text-xs text-timecut-500 mb-1.5">运动检测灵敏度（1-100，越高越灵敏）</label>
@@ -350,11 +363,11 @@ function refreshLive() {
  }
  
  window.toggleHighlight = function() {
-   const btn = document.getElementById('s-highlight-toggle');
-   const enabled = !btn.classList.contains('bg-accent-600');
-   btn.className = `btn relative w-12 h-6 rounded-full transition-colors ${enabled ? 'bg-accent-600' : 'bg-timecut-600'}`;
-   btn.querySelector('span').className = `absolute top-0.5 w-5 h-5 bg-white rounded-full transition-transform ${enabled ? 'translate-x-6' : 'translate-x-0.5'}`;
- };
+  const btn = document.getElementById('s-highlight-toggle');
+  const enabled = !btn.classList.contains('bg-accent-600');
+  btn.className = `btn relative w-12 h-6 rounded-full transition-colors ${enabled ? 'bg-accent-600' : 'bg-timecut-600'}`;
+  btn.querySelector('span').className = `absolute left-0 top-0.5 w-5 h-5 bg-white rounded-full transition-transform ${enabled ? 'translate-x-[26px]' : 'translate-x-0.5'}`;
+};
  
  window.saveSettings = async function() {
    const data = {

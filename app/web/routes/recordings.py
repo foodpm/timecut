@@ -8,6 +8,22 @@ from config import settings
 
 router = APIRouter(prefix="/api/recordings", tags=["recordings"])
 
+# 录制控制回调（由 main.py 注册，避免循环导入）
+_control_callbacks = {}
+
+
+def register_control_callback(action: str, cb):
+    _control_callbacks[action] = cb
+
+
+@router.post("/control/{action}")
+async def control_recording(action: str):
+    """控制录制开始/停止"""
+    cb = _control_callbacks.get(action)
+    if not cb:
+        raise HTTPException(400, f"未知操作: {action}")
+    return await cb()
+
 
 @router.get("")
 def list_recordings(

@@ -124,11 +124,26 @@ def trigger_restart_recording():
     return {"status": "ok", "message": "录制重启已触发"}
 
 
+async def trigger_start_recording():
+    """开始录制"""
+    await recorder.start()
+    return {"status": "ok", "recording": recorder.is_recording}
+
+
+async def trigger_stop_recording():
+    """停止录制"""
+    await recorder.stop()
+    return {"status": "ok", "recording": recorder.is_recording}
+
+
 from web.routes import cameras_router, recordings_router, highlights_router, settings_router
 from web.routes.settings import register_restart_callback
 from web.routes.highlights import register_highlight_callback
+from web.routes.recordings import register_control_callback
 register_restart_callback(trigger_restart_recording)
 register_highlight_callback(lambda: scheduler.run_daily_highlight("2026-08-01"))
+register_control_callback("start", trigger_start_recording)
+register_control_callback("stop", trigger_stop_recording)
 
 app.include_router(cameras_router)
 app.include_router(recordings_router)
