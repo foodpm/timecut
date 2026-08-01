@@ -27,7 +27,10 @@ class MotionDetector:
 
     def __init__(self, sensitivity: int | None = None):
         self.sensitivity = sensitivity or settings.detection_sensitivity
-        self._scene_threshold = max(0.003, 0.3 - (self.sensitivity / 100) * 0.297)
+        # 场景变化阈值：灵敏度越高阈值越低。
+        # 实测家庭监控画面 scene 分数普遍集中在 0.02-0.05 区间，
+        # 旧映射在灵敏度 50 时阈值高达 0.15，导致几乎检不出运动。
+        self._scene_threshold = max(0.01, 0.05 - (self.sensitivity / 100) * 0.04)
 
     def analyze(self, video_path: Path) -> list[MotionSegment]:
         if not video_path.exists():
