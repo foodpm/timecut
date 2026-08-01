@@ -4,7 +4,7 @@ import json
 import logging
 import urllib.request
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 from fastapi import APIRouter
 from pydantic import BaseModel
@@ -25,7 +25,14 @@ _ENV_MAP = {
     "highlight_enabled": "HIGHLIGHT_ENABLED",
     "highlight_schedule_time": "HIGHLIGHT_SCHEDULE_TIME",
     "detection_sensitivity": "DETECTION_SENSITIVITY",
+    "recording_enabled": "RECORDING_ENABLED",
 }
+
+
+def persist_recording_state(enabled: bool):
+    """持久化录制开关状态"""
+    settings.recording_enabled = enabled
+    _persist_settings({"recording_enabled": enabled})
 
 
 def _persist_settings(changes: dict):
@@ -43,11 +50,17 @@ def _persist_settings(changes: dict):
         logger.warning(f"持久化配置到 .env 失败: {e}")
 
 _restart_callback = None
+_delete_camera_callback = None
 
 
 def register_restart_callback(cb):
     global _restart_callback
     _restart_callback = cb
+
+
+def register_delete_camera_callback(cb):
+    global _delete_camera_callback
+    _delete_camera_callback = cb
 
 
 class SettingsUpdate(BaseModel):
@@ -106,6 +119,122 @@ def get_go2rtc_streams():
     return {"streams": streams}
 
 
+def _restart_go2rtc() -> bool:
+    """重启本地 go2rtc 进程（尽力而为，Docker 环境会失败并提示手动重启）"""
+    import os
+    import signal
+    import subprocess
+    import time
+    try:
+        out = subprocess.run(["lsof", "-ti", ":1984"], capture_output=True, text=True, timeout=5)
+        pids = out.stdout.strip().split()
+        for pid in pids:
+            if pid:
+                os.kill(int(pid), signal.SIGTERM)
+        time.sleep(1.5)
+        binary = os.environ.get("GO2RTC_BIN", "/tmp/go2rtc")
+        if os.path.exists(binary):
+            logf = open("/tmp/go2rtc.log", "a")
+            subprocess.Popen(
+                [binary], cwd=os.getcwd(),
+                stdout=logf, stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
+            time.sleep(2)
+            return True
+    except Exception as e:
+        logger.warning(f"重启 go2rtc 失败: {e}")
+    return False
+
+
+@router.delete("/go2rtc/streams/{name}")
+def delete_go2rtc_stream(name: str):
+    """删除指定的 go2rtc 视频流：直接修改配置文件 + 重启 go2rtc"""
+    config_updated = False
+
+    # 1. 直接修改 go2rtc 配置文件（最可靠，本地可直接写文件）
+    cfg_path = Path(settings.go2rtc_config_path)
+    if cfg_path.exists():
+        try:
+            import yaml
+            data = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
+            if name in (data.get("streams") or {}):
+                del data["streams"][name]
+                cfg_path.write_text(
+                    yaml.safe_dump(data, allow_unicode=True, default_flow_style=False, sort_keys=False),
+                    encoding="utf-8",
+                )
+                config_updated = True
+        except Exception as e:
+            logger.warning(f"修改 go2rtc 配置文件失败: {e}")
+
+    # 2. 配置文件不可写时（如 Docker 只读挂载），回退到 go2rtc API
+    if not config_updated:
+        try:
+            cfg_text = urllib.request.urlopen(
+                f"{settings.go2rtc_url}/api/config", timeout=5
+            ).read().decode()
+            import yaml
+            data = yaml.safe_load(cfg_text) or {}
+            if name in (data.get("streams") or {}):
+                del data["streams"][name]
+                new_cfg = yaml.safe_dump(data, allow_unicode=True, default_flow_style=False, sort_keys=False)
+                req = urllib.request.Request(
+                    f"{settings.go2rtc_url}/api/config",
+                    data=new_cfg.encode("utf-8"),
+                    method="PUT",
+                    headers={"Content-Type": "text/yaml"},
+                )
+                urllib.request.urlopen(req, timeout=5)
+                config_updated = True
+        except Exception as e:
+            logger.warning(f"通过 API 更新 go2rtc 配置失败: {e}")
+            return {"status": "error", "message": f"删除视频流失败: {e}"}
+
+    if not config_updated:
+        return {"status": "error", "message": f"视频流 {name} 不存在或无法删除"}
+
+    # 3. 尝试停止运行时流
+    try:
+        req = urllib.request.Request(
+            f"{settings.go2rtc_url}/api/streams?name={quote(name)}",
+            method="DELETE",
+        )
+        urllib.request.urlopen(req, timeout=5)
+    except Exception:
+        pass
+
+    # 4. 若流仍在运行，重启 go2rtc 使配置生效
+    message = f"已删除视频流 {name}"
+    try:
+        remaining = json.loads(urllib.request.urlopen(
+            f"{settings.go2rtc_url}/api/streams", timeout=5
+        ).read())
+        if name in remaining:
+            if _restart_go2rtc():
+                message = f"已删除视频流 {name}（go2rtc 已自动重启）"
+            else:
+                message = f"已从配置删除 {name}，请重启 go2rtc 后完全生效"
+    except Exception:
+        pass
+
+    # 5. 若删除的是当前录制使用的流，停止录制并清空摄像头配置
+    if settings.camera_rtsp_url.rstrip("/").endswith(f"/{name}"):
+        if _delete_camera_callback:
+            _delete_camera_callback()
+        settings.camera_rtsp_url = ""
+        settings.camera_name = ""
+        _persist_settings({"camera_rtsp_url": "", "camera_name": ""})
+        from database import get_session, Camera
+        session = get_session()
+        try:
+            session.query(Camera).delete()
+            session.commit()
+        finally:
+            session.close()
+    return {"status": "ok", "message": message}
+
+
 @router.put("")
 def update_settings(data: SettingsUpdate):
     changes = {}
@@ -143,3 +272,26 @@ def restart_recording():
         return _restart_callback()
     logger.warning("录制重启回调未注册")
     return {"status": "error", "message": "录制重启回调未注册"}
+
+
+@router.post("/delete-camera")
+def delete_camera():
+    """删除摄像头：停止录制、清空配置、删除数据库记录"""
+    if _delete_camera_callback:
+        _delete_camera_callback()
+    # 清空摄像头配置并持久化
+    settings.camera_name = ""
+    settings.camera_rtsp_url = ""
+    _persist_settings({"camera_name": "", "camera_rtsp_url": ""})
+    # 删除数据库中的摄像头记录
+    try:
+        from database import get_session, Camera
+        session = get_session()
+        try:
+            session.query(Camera).delete()
+            session.commit()
+        finally:
+            session.close()
+    except Exception as e:
+        logger.warning(f"删除摄像头记录失败: {e}")
+    return {"status": "ok", "message": "摄像头已删除"}

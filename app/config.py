@@ -17,6 +17,8 @@ class Settings(BaseSettings):
     data_dir: str = "/data"
     tz: str = "Asia/Shanghai"
     go2rtc_url: str = "http://localhost:1984"
+    go2rtc_config_path: str = "go2rtc.yaml"
+    recording_enabled: bool = True
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 

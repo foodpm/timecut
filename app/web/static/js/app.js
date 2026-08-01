@@ -100,14 +100,20 @@
            <div class="text-2xl font-bold text-timecut-100 mb-3">${health.recording ? '<span class="text-green-400">●</span> 录制中' : '<span class="text-yellow-400">●</span> 已停止'}</div>
            <button onclick="toggleRecording()" class="btn w-full text-center text-sm px-3 py-2 rounded-lg ${health.recording ? 'bg-red-600/20 text-red-400 hover:bg-red-600/30' : 'bg-green-600 text-white hover:bg-green-500'}">${health.recording ? '■ 停止录制' : '● 开始录制'}</button>
          </div>
-         <div class="stat-card bg-timecut-800 rounded-xl p-5 border border-timecut-700">
+         <div class="stat-card bg-timecut-800 rounded-xl p-5 border border-timecut-700 cursor-pointer hover:border-accent-500/50" onclick="navigate('recordings')">
            <div class="text-timecut-500 text-xs mb-1">录像总数</div>
-           <div class="text-2xl font-bold text-timecut-100">${stats.total_recordings}</div>
+           <div class="flex items-center justify-between">
+             <div class="text-2xl font-bold text-timecut-100">${stats.total_recordings}</div>
+             <svg class="w-5 h-5 text-timecut-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+           </div>
            <div class="text-xs text-timecut-500 mt-1">占用 ${stats.total_size_gb} GB · 保留 ${stats.retention_days} 天</div>
          </div>
-         <div class="stat-card bg-timecut-800 rounded-xl p-5 border border-timecut-700">
+         <div class="stat-card bg-timecut-800 rounded-xl p-5 border border-timecut-700 cursor-pointer hover:border-accent-500/50" onclick="navigate('highlights')">
            <div class="text-timecut-500 text-xs mb-1">精华视频</div>
-           <div class="text-2xl font-bold text-timecut-100">${highlights.total}</div>
+           <div class="flex items-center justify-between">
+             <div class="text-2xl font-bold text-timecut-100">${highlights.total}</div>
+             <svg class="w-5 h-5 text-timecut-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+           </div>
            <div class="text-xs text-timecut-500 mt-1">${settings.highlight_enabled ? '自动剪辑已开启' : '自动剪辑已关闭'}</div>
          </div>
        </div>
@@ -318,7 +324,7 @@ function refreshLive() {
        API.get('/api/settings/go2rtc/streams').catch(() => ({streams: [], error: 'go2rtc 不可用'})),
      ]);
      el.innerHTML = `
-     <div class="max-w-2xl space-y-6">
+     <div class="max-w-3xl space-y-6">
        <!-- 摄像头设置 -->
        <div class="bg-timecut-800 rounded-xl p-5 border border-timecut-700">
          <h3 class="text-sm font-semibold text-timecut-300 mb-4">摄像头设置</h3>
@@ -340,7 +346,12 @@ function refreshLive() {
                      <div class="text-xs text-timecut-200 flex items-center gap-1.5">${st.name} <span class="text-[10px] ${st.online ? 'text-green-400' : 'text-timecut-600'}">${st.online ? '●在线' : '○离线'}</span></div>
                      <div class="text-[10px] text-timecut-500 font-mono truncate">${st.rtsp_url}</div>
                    </div>
-                   <button onclick="useGo2RtcStream('${st.rtsp_url}')" class="btn shrink-0 text-xs bg-accent-600 hover:bg-accent-500 text-white px-2.5 py-1 rounded">使用</button>
+                   <div class="flex items-center gap-1 shrink-0">
+                     <button onclick="deleteGo2RtcStream('${st.name}')" class="btn p-1.5 text-timecut-500 hover:text-red-400 rounded" title="删除该视频流">
+                       <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                     </button>
+                     <button onclick="useGo2RtcStream('${st.rtsp_url}')" class="btn text-xs bg-accent-600 hover:bg-accent-500 text-white px-2.5 py-1 rounded">使用</button>
+                   </div>
                  </div>
                `).join('')}
                ${!g.streams.length ? `<div class="text-xs text-timecut-500 text-center py-3">${g.error ? '⚠ ' + g.error : '暂无 go2rtc 视频流'}</div>` : ''}
@@ -399,6 +410,16 @@ function refreshLive() {
   input.value = rtsp;
   toast('已选用 go2rtc 视频流，正在保存...', 'info');
   await saveSettings();
+};
+
+window.deleteGo2RtcStream = async function(name) {
+  if (!confirm(`确定删除视频流「${name}」？`)) return;
+  try {
+    const res = await API.del(`/api/settings/go2rtc/streams/${encodeURIComponent(name)}`);
+    if (res.status === 'error') { toast(res.message || '删除失败', 'error'); return; }
+    toast(res.message || `已删除视频流「${name}」`, 'success');
+    setTimeout(() => renderSettings(document.getElementById('page-content')), 800);
+  } catch (e) { toast(`删除失败: ${e.message}`, 'error'); }
 };
 
 // ══════════ 添加摄像头向导（本地中文版）══════════

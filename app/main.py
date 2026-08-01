@@ -47,7 +47,7 @@ async def lifespan(app: FastAPI):
 
     _init_default_camera()
 
-    if settings.camera_rtsp_url:
+    if settings.camera_rtsp_url and settings.recording_enabled:
         await recorder.start()
         recorder.scan_new_recordings()
         # 定时扫描新录像文件（每30秒）
@@ -126,24 +126,41 @@ def trigger_restart_recording():
 
 async def trigger_start_recording():
     """开始录制"""
+    from web.routes.settings import persist_recording_state
+    persist_recording_state(True)
     await recorder.start()
     return {"status": "ok", "recording": recorder.is_recording}
 
 
 async def trigger_stop_recording():
     """停止录制"""
+    from web.routes.settings import persist_recording_state
+    persist_recording_state(False)
     await recorder.stop()
     return {"status": "ok", "recording": recorder.is_recording}
 
 
+def trigger_delete_camera():
+    """删除摄像头：停止录制"""
+    import asyncio
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        asyncio.run(recorder.stop())
+    else:
+        loop.create_task(recorder.stop())
+    return {"status": "ok"}
+
+
 from web.routes import cameras_router, recordings_router, highlights_router, settings_router
-from web.routes.settings import register_restart_callback
+from web.routes.settings import register_restart_callback, register_delete_camera_callback
 from web.routes.highlights import register_highlight_callback
 from web.routes.recordings import register_control_callback
 register_restart_callback(trigger_restart_recording)
 register_highlight_callback(lambda: scheduler.run_daily_highlight("2026-08-01"))
 register_control_callback("start", trigger_start_recording)
 register_control_callback("stop", trigger_stop_recording)
+register_delete_camera_callback(trigger_delete_camera)
 
 app.include_router(cameras_router)
 app.include_router(recordings_router)
