@@ -5,6 +5,10 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-green.svg)](https://fastapi.tiangolo.com/)
 [![Docker](https://img.shields.io/badge/Docker-Compose-blue.svg)](https://www.docker.com/)
 
+<p align="center">
+  <img src="logo.png" width="140" alt="TimeCut Logo">
+</p>
+
 一个跑在 NAS Docker 上的监控摄像头录像管理系统。接入摄像头实时流，支持**循环录像**、**按天保留**、**每日精华视频自动剪辑**，并提供浏览器 Web 管理界面。
 
 ## ✨ 功能特性

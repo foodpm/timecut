@@ -401,9 +401,8 @@ function refreshLive() {
   await saveSettings();
 };
 
-// ══════════ go2rtc 添加摄像头向导（嵌入官方 add.html）══════════
+// ══════════ 添加摄像头向导（本地中文版）══════════
 function openGo2RtcAdd() {
-  const host = window.location.hostname || 'localhost';
   let modal = document.getElementById('go2rtc-add-modal');
   if (!modal) {
     modal = document.createElement('div');
@@ -411,19 +410,22 @@ function openGo2RtcAdd() {
     modal.className = 'fixed inset-0 z-50 hidden';
     modal.innerHTML = `
       <div class="absolute inset-0 bg-black/80" onclick="closeGo2RtcAdd()"></div>
-      <div class="relative z-10 max-w-4xl mx-auto h-full flex items-center p-4">
+      <div class="relative z-10 max-w-3xl mx-auto h-full flex items-center p-4">
         <div class="w-full bg-timecut-900 rounded-xl border border-timecut-700 overflow-hidden flex flex-col h-[85vh]">
           <div class="flex items-center justify-between px-4 py-3 border-b border-timecut-700">
             <span class="text-sm text-timecut-200">添加摄像头</span>
             <button onclick="closeGo2RtcAdd()" class="text-timecut-500 hover:text-timecut-300 text-lg leading-none">✕</button>
           </div>
-          <iframe id="go2rtc-add-frame" class="flex-1 w-full border-0 bg-white" src="http://${host}:1984/add.html"></iframe>
+          <iframe id="go2rtc-add-frame" class="flex-1 w-full border-0" src="/add-camera.html"></iframe>
         </div>
       </div>`;
     document.body.appendChild(modal);
   }
   const frame = document.getElementById('go2rtc-add-frame');
-  frame.src = `http://${host}:1984/add.html`;
+  // 避免重复设置 src 导致页面重复加载
+  if (frame.getAttribute('src') !== '/add-camera.html') {
+    frame.src = '/add-camera.html';
+  }
   modal.classList.remove('hidden');
 }
 
@@ -431,6 +433,16 @@ window.closeGo2RtcAdd = function() {
   const modal = document.getElementById('go2rtc-add-modal');
   if (modal) modal.classList.add('hidden');
 };
+
+// 监听添加向导的完成消息：自动填入 RTSP 地址并保存
+window.addEventListener('message', async (e) => {
+  if (!e.data || e.data.type !== 'stream-added') return;
+  const input = document.getElementById('s-rtsp');
+  if (input) input.value = e.data.rtsp;
+  toast(`已添加摄像头「${e.data.name}」，正在应用配置...`, 'success');
+  closeGo2RtcAdd();
+  setTimeout(() => saveSettings(), 300);
+});
 
 window.refreshGo2RtcStreams = function() {
   toast('正在刷新视频流...', 'info');

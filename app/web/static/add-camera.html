@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>添加摄像头</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #cbd5e1; padding: 16px; }
+h2 { color: #f1f5f9; font-size: 16px; margin-bottom: 12px; }
+.brand { display: block; width: 100%; background: #1e293b; color: #e2e8f0; cursor: pointer; padding: 12px; border: 1px solid #334155; border-radius: 8px; text-align: left; font-size: 14px; font-weight: 600; margin-bottom: 8px; }
+.brand:hover { background: #334155; }
+.brand.active { border-color: #2563eb; }
+.panel { display: none; flex-direction: column; gap: 10px; margin-bottom: 14px; padding: 12px; background: #1e293b; border: 1px solid #334155; border-radius: 8px; }
+.panel.show { display: flex; }
+.row { display: flex; flex-direction: column; gap: 4px; }
+label { font-size: 12px; color: #94a3b8; }
+input, select { background: #0f172a; border: 1px solid #334155; color: #e2e8f0; padding: 8px 10px; border-radius: 6px; font-size: 13px; width: 100%; outline: none; }
+input:focus, select:focus { border-color: #2563eb; }
+button.action { background: #2563eb; color: #fff; border: none; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500; align-self: flex-start; }
+button.action:hover { background: #1d4ed8; }
+button.action.small { padding: 4px 10px; font-size: 12px; }
+table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 4px; }
+th, td { border: 1px solid #334155; padding: 6px 8px; text-align: left; word-break: break-word; }
+th { background: #0f172a; color: #94a3b8; font-weight: 500; }
+.captcha-img { max-width: 180px; border-radius: 6px; border: 1px solid #334155; }
+#status { color: #22c55e; font-size: 12px; margin-top: 8px; min-height: 16px; }
+#status.err { color: #ef4444; }
+.hint { font-size: 11px; color: #64748b; }
+</style>
+</head>
+<body>
+<h2>添加摄像头</h2>
+
+<button class="brand" id="btn-manual">手动添加（输入视频流地址）</button>
+<div class="panel" id="panel-manual">
+  <div class="row">
+    <label>流名称</label>
+    <input id="m-name" placeholder="如 camera1">
+  </div>
+  <div class="row">
+    <label>视频流地址（RTSP / HTTP）</label>
+    <input id="m-src" placeholder="rtsp://user:password@192.168.1.100:554/stream">
+  </div>
+  <button class="action" onclick="manualAdd()">添加</button>
+  <div class="hint">适用于已知视频流地址的用户，如海康/大华等品牌摄像头。</div>
+</div>
+
+<button class="brand" id="btn-xiaomi">小米 / 米家（账号登录）</button>
+<div class="panel" id="panel-xiaomi">
+  <div id="xiaomi-login">
+    <div class="row">
+      <label>小米账号</label>
+      <input id="xm-user" placeholder="手机号 / 邮箱">
+    </div>
+    <div class="row">
+      <label>密码</label>
+      <input id="xm-pass" type="password" placeholder="密码">
+    </div>
+    <button class="action" onclick="xiaomiLogin()">登录</button>
+  </div>
+  <div id="xiaomi-captcha" style="display:none">
+    <div class="row"><label>图形验证码</label><img id="xm-captcha-img" class="captcha-img"></div>
+    <div class="row"><input id="xm-captcha" placeholder="输入图形验证码"></div>
+    <button class="action" onclick="xiaomiSend('captcha')">提交</button>
+  </div>
+  <div id="xiaomi-verify" style="display:none">
+    <div class="row"><label id="xm-verify-label">短信 / 邮箱验证码</label></div>
+    <div class="row"><input id="xm-verify" placeholder="输入验证码"></div>
+    <button class="action" onclick="xiaomiSend('verify')">提交</button>
+  </div>
+  <div id="xiaomi-devices" style="display:none">
+    <div class="row">
+      <label>已登录设备</label>
+      <select id="xm-device"></select>
+    </div>
+    <div class="row">
+      <label>地区</label>
+      <select id="xm-region">
+        <option value="cn">中国</option>
+        <option value="de">欧洲</option>
+        <option value="i2">印度</option>
+        <option value="ru">俄罗斯</option>
+        <option value="sg">新加坡</option>
+        <option value="us">美国</option>
+      </select>
+    </div>
+    <button class="action" onclick="xiaomiLoadDevices()">加载设备列表</button>
+    <table><thead><tr><th>名称</th><th>地址</th><th></th></tr></thead><tbody id="xm-table"></tbody></table>
+  </div>
+</div>
+
+<button class="brand" id="btn-onvif">ONVIF 自动发现（局域网）</button>
+<div class="panel" id="panel-onvif">
+  <div class="row">
+    <label>ONVIF 设备地址（可选，留空自动扫描局域网）</label>
+    <input id="onvif-src" placeholder="onvif://user:password@192.168.1.123:80">
+  </div>
+  <button class="action" onclick="onvifScan()">扫描 / 测试</button>
+  <table><thead><tr><th>名称</th><th>地址</th><th></th></tr></thead><tbody id="onvif-table"></tbody></table>
+</div>
+
+<div id="status"></div>
+
+<script>
+const GO2RTC = 'http://' + (location.hostname || 'localhost') + ':1984';
+
+function status(msg, isErr) {
+  const el = document.getElementById('status');
+  el.textContent = msg;
+  el.className = isErr ? 'err' : '';
+}
+
+function togglePanel(panelId, btnId) {
+  ['manual', 'xiaomi', 'onvif'].forEach(k => {
+    document.getElementById('panel-' + k).classList.remove('show');
+    document.getElementById('btn-' + k).classList.remove('active');
+  });
+  document.getElementById(panelId).classList.add('show');
+  document.getElementById(btnId).classList.add('active');
+}
+
+document.getElementById('btn-manual').onclick = () => togglePanel('panel-manual', 'btn-manual');
+document.getElementById('btn-xiaomi').onclick = () => togglePanel('panel-xiaomi', 'btn-xiaomi');
+document.getElementById('btn-onvif').onclick = () => togglePanel('panel-onvif', 'btn-onvif');
+
+// ── 通用：添加流并通知父窗口 ──
+async function addStream(name, src) {
+  const url = new URL(GO2RTC + '/api/streams');
+  url.searchParams.set('name', name);
+  url.searchParams.set('src', src);
+  const r = await fetch(url, { method: 'PUT' });
+  if (r.ok) {
+    const rtsp = 'rtsp://' + (location.hostname || 'localhost') + ':8554/' + name;
+    status('已添加「' + name + '」，RTSP 地址：' + rtsp);
+    // 通知父窗口自动填入并保存
+    window.parent.postMessage({ type: 'stream-added', name: name, rtsp: rtsp }, '*');
+  } else {
+    status('添加失败：' + (await r.text()), true);
+  }
+}
+
+// ── 手动添加 ──
+async function manualAdd() {
+  const name = document.getElementById('m-name').value.trim();
+  const src = document.getElementById('m-src').value.trim();
+  if (!name || !src) { status('请填写流名称和地址', true); return; }
+  await addStream(name, src);
+}
+
+// ── 小米 / 米家 ──
+function hideXiaomiSections() {
+  document.getElementById('xiaomi-login').style.display = '';
+  document.getElementById('xiaomi-captcha').style.display = 'none';
+  document.getElementById('xiaomi-verify').style.display = 'none';
+}
+
+async function xiaomiLogin() {
+  const body = new URLSearchParams();
+  body.set('username', document.getElementById('xm-user').value.trim());
+  body.set('password', document.getElementById('xm-pass').value);
+  await xiaomiAuth(body);
+}
+
+async function xiaomiSend(type) {
+  const body = new URLSearchParams();
+  body.set(type, document.getElementById('xm-' + type).value.trim());
+  await xiaomiAuth(body);
+}
+
+async function xiaomiAuth(body) {
+  const r = await fetch(GO2RTC + '/api/xiaomi', { method: 'POST', body: body });
+  if (r.status === 401) {
+    const data = await r.json();
+    hideXiaomiSections();
+    if (data.captcha) {
+      document.getElementById('xiaomi-captcha').style.display = 'flex';
+      document.getElementById('xm-captcha-img').src = 'data:image/jpeg;base64,' + data.captcha;
+    } else {
+      document.getElementById('xiaomi-verify').style.display = 'flex';
+      document.getElementById('xm-verify-label').textContent = data.verify_email || data.verify_phone || '短信验证码';
+    }
+  } else if (r.ok) {
+    status('小米登录成功，加载设备中...');
+    hideXiaomiSections();
+    await xiaomiReload();
+  } else {
+    status('登录失败：' + (await r.text()), true);
+    hideXiaomiSections();
+  }
+}
+
+async function xiaomiReload() {
+  try {
+    const r = await fetch(GO2RTC + '/api/xiaomi', { cache: 'no-cache' });
+    const data = await r.json();
+    const select = document.getElementById('xm-device');
+    select.innerHTML = data.map(item => '<option value="' + item + '">' + item + '</option>').join('');
+    document.getElementById('xiaomi-devices').style.display = 'flex';
+  } catch (e) {
+    status('加载设备失败：' + e.message, true);
+  }
+}
+
+async function xiaomiLoadDevices() {
+  const params = new URLSearchParams({
+    id: document.getElementById('xm-device').value,
+    region: document.getElementById('xm-region').value,
+  });
+  const r = await fetch(GO2RTC + '/api/xiaomi?' + params.toString(), { cache: 'no-cache' });
+  if (!r.ok) { status('加载失败：' + (await r.text()), true); return; }
+  const data = await r.json();
+  renderDevices('xm-table', data.sources || []);
+}
+
+// ── ONVIF ──
+async function onvifScan() {
+  const table = document.getElementById('onvif-table');
+  table.innerHTML = '';
+  const src = document.getElementById('onvif-src').value.trim();
+  const url = new URL(GO2RTC + '/api/onvif');
+  if (src) url.searchParams.set('src', src);
+  const r = await fetch(url.toString(), { cache: 'no-cache' });
+  if (!r.ok) { status('ONVIF 扫描失败：' + (await r.text()), true); return; }
+  const data = await r.json();
+  renderDevices('onvif-table', data.sources || []);
+}
+
+function renderDevices(tableId, sources) {
+  const tbody = document.getElementById(tableId);
+  tbody.innerHTML = '';
+  if (!sources.length) { status('未发现设备', true); return; }
+  sources.forEach(s => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td>' + (s.name || '') + '</td><td>' + (s.url || '') + '</td>' +
+      '<td><button class="action small" onclick="addStream(\'' + (s.id || 'cam') + '\', \'' + (s.url || '') + '\')">添加</button></td>';
+    tbody.appendChild(tr);
+  });
+  status('发现 ' + sources.length + ' 个设备');
+}
+</script>
+</body>
+</html>

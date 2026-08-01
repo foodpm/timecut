@@ -3,6 +3,7 @@
 import json
 import logging
 import urllib.request
+from pathlib import Path
 from urllib.parse import urlparse
 
 from fastapi import APIRouter
@@ -13,6 +14,33 @@ from config import settings
 logger = logging.getLogger("timecut.api")
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
+
+# 配置字段与 .env 环境变量名映射
+_ENV_MAP = {
+    "camera_name": "CAMERA_NAME",
+    "camera_rtsp_url": "CAMERA_RTSP_URL",
+    "recording_retention_days": "RECORDING_RETENTION_DAYS",
+    "recording_segment_minutes": "RECORDING_SEGMENT_MINUTES",
+    "highlight_duration_minutes": "HIGHLIGHT_DURATION_MINUTES",
+    "highlight_enabled": "HIGHLIGHT_ENABLED",
+    "highlight_schedule_time": "HIGHLIGHT_SCHEDULE_TIME",
+    "detection_sensitivity": "DETECTION_SENSITIVITY",
+}
+
+
+def _persist_settings(changes: dict):
+    """将配置写入 .env 文件（本地开发生效；Docker 内 .env 不存在则忽略）"""
+    try:
+        from dotenv import set_key
+        env_path = Path(".env")
+        if not env_path.exists():
+            return
+        for key, value in changes.items():
+            env_var = _ENV_MAP.get(key)
+            if env_var:
+                set_key(str(env_path), env_var, str(value))
+    except Exception as e:
+        logger.warning(f"持久化配置到 .env 失败: {e}")
 
 _restart_callback = None
 
@@ -80,22 +108,32 @@ def get_go2rtc_streams():
 
 @router.put("")
 def update_settings(data: SettingsUpdate):
+    changes = {}
     if data.camera_name is not None:
         settings.camera_name = data.camera_name
+        changes["camera_name"] = data.camera_name
     if data.camera_rtsp_url is not None:
         settings.camera_rtsp_url = data.camera_rtsp_url
+        changes["camera_rtsp_url"] = data.camera_rtsp_url
     if data.recording_retention_days is not None:
         settings.recording_retention_days = data.recording_retention_days
+        changes["recording_retention_days"] = data.recording_retention_days
     if data.recording_segment_minutes is not None:
         settings.recording_segment_minutes = data.recording_segment_minutes
+        changes["recording_segment_minutes"] = data.recording_segment_minutes
     if data.highlight_duration_minutes is not None:
         settings.highlight_duration_minutes = data.highlight_duration_minutes
+        changes["highlight_duration_minutes"] = data.highlight_duration_minutes
     if data.highlight_enabled is not None:
         settings.highlight_enabled = data.highlight_enabled
+        changes["highlight_enabled"] = data.highlight_enabled
     if data.highlight_schedule_time is not None:
         settings.highlight_schedule_time = data.highlight_schedule_time
+        changes["highlight_schedule_time"] = data.highlight_schedule_time
     if data.detection_sensitivity is not None:
         settings.detection_sensitivity = data.detection_sensitivity
+        changes["detection_sensitivity"] = data.detection_sensitivity
+    _persist_settings(changes)
     return {"status": "ok"}
 
 
