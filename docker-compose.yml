@@ -16,10 +16,13 @@ services:
       - timecut-net
 
   # ── 核心应用（录像 + 精华检测 + Web UI）──
+  # 使用 GitHub Actions 自动构建的预编译镜像，NAS 无需编译，直接拉取
   app:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ghcr.io/foodpm/timecut:latest
+    # 如需自行构建，取消下面注释并注释上面一行：
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
     container_name: timecut-app
     restart: unless-stopped
     ports:

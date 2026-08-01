@@ -41,30 +41,25 @@
 
 ## 🚀 快速开始
 
-### Docker 部署（推荐）
+### Docker 部署（推荐，免编译）
 
-> 需要 NAS 已安装 Docker 与 Docker Compose（群晖 Container Manager / 威联通 Container Station）
+> 镜像已通过 GitHub Actions 自动构建并发布到 GHCR，NAS 上**无需编译**，直接拉取运行。
+> 需要 NAS 已安装 Docker 与 Docker Compose（群晖 Container Manager / 威联通 Container Station / 绿联极空间 Docker 界面）。
 
-**1. 获取项目**
+**1. 获取部署文件**
 
-将本项目拷贝到 NAS 共享目录，或直接克隆：
+只需 3 个文件：`docker-compose.yml`、`go2rtc.yaml.example`、`.env.example`
 
 ```bash
 git clone https://github.com/foodpm/timecut.git
 cd timecut
-```
 
-**2. 配置摄像头**
-
-```bash
-# 复制配置模板（含摄像头流地址）
+# 复制配置模板
 cp go2rtc.yaml.example go2rtc.yaml
-
-# 复制环境变量模板
 cp .env.example .env
 ```
 
-编辑 `go2rtc.yaml`，填入摄像头信息：
+**2. 配置摄像头**（编辑 `go2rtc.yaml`）
 
 ```yaml
 streams:
@@ -76,24 +71,26 @@ streams:
     - ffmpeg:camera1#video=h264#audio=aac#width=1280#height=720
 ```
 
-编辑 `.env`，配置录像策略：
+**3. 配置录像策略**（编辑 `.env`）
 
 ```bash
-# 摄像头 RTSP 地址（Docker 内部 go2rtc 服务名）
+# 摄像头 RTSP 地址（Docker 内部 go2rtc 服务名，与 go2rtc.yaml 流名对应）
 CAMERA_RTSP_URL=rtsp://go2rtc:8554/camera1_h264
-# 录像保留天数
+# 录像保留天数 / 分段时长
 RECORDING_RETENTION_DAYS=7
-# 录像分段时长（分钟）
 RECORDING_SEGMENT_MINUTES=1
 ```
 
-**3. 启动服务**
+**4. 启动服务**（自动拉取预构建镜像）
 
 ```bash
-docker compose up -d --build
+docker compose up -d
 ```
 
-**4. 访问管理面板**
+> 首次会自动拉取 `ghcr.io/foodpm/timecut:latest` 与 go2rtc 镜像，无需本地构建。
+> 如需自行编译镜像，将 `docker-compose.yml` 中 `image:` 一行注释、取消 `build:` 注释，再执行 `docker compose up -d --build`。
+
+**5. 访问管理面板**
 
 打开浏览器访问 `http://你的NAS地址:8090`
 
