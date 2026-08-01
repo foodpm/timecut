@@ -326,7 +326,13 @@ function refreshLive() {
            <div><label class="block text-xs text-timecut-500 mb-1.5">摄像头名称</label><input id="s-name" class="w-full bg-timecut-900 border border-timecut-700 rounded-lg px-3 py-2 text-sm text-timecut-200 focus:outline-none focus:border-accent-500" value="${s.camera_name || ''}"></div>
            <div><label class="block text-xs text-timecut-500 mb-1.5">RTSP 地址</label><input id="s-rtsp" class="w-full bg-timecut-900 border border-timecut-700 rounded-lg px-3 py-2 text-sm text-timecut-200 font-mono focus:outline-none focus:border-accent-500" value="${s.camera_rtsp_url || ''}" placeholder="rtsp://user:password@ip:554/stream"></div>
            <div>
-             <label class="block text-xs text-timecut-500 mb-1.5">go2rtc 视频流（点击「使用」自动填入并保存）</label>
+             <div class="flex items-center justify-between mb-1.5">
+               <label class="text-xs text-timecut-500">go2rtc 视频流</label>
+               <div class="flex gap-2">
+                 <button onclick="openGo2RtcAdd()" class="btn text-xs bg-accent-600 hover:bg-accent-500 text-white px-2.5 py-1 rounded">＋ 添加摄像头</button>
+                 <button onclick="refreshGo2RtcStreams()" class="btn text-xs bg-timecut-700 hover:bg-timecut-600 text-timecut-300 px-2.5 py-1 rounded">刷新</button>
+               </div>
+             </div>
              <div class="space-y-2 max-h-52 overflow-y-auto pr-1">
                ${g.streams.map(st => `
                  <div class="flex items-center justify-between gap-2 bg-timecut-900 border border-timecut-700 rounded-lg px-3 py-2">
@@ -393,6 +399,42 @@ function refreshLive() {
   input.value = rtsp;
   toast('已选用 go2rtc 视频流，正在保存...', 'info');
   await saveSettings();
+};
+
+// ══════════ go2rtc 添加摄像头向导（嵌入官方 add.html）══════════
+function openGo2RtcAdd() {
+  const host = window.location.hostname || 'localhost';
+  let modal = document.getElementById('go2rtc-add-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'go2rtc-add-modal';
+    modal.className = 'fixed inset-0 z-50 hidden';
+    modal.innerHTML = `
+      <div class="absolute inset-0 bg-black/80" onclick="closeGo2RtcAdd()"></div>
+      <div class="relative z-10 max-w-4xl mx-auto h-full flex items-center p-4">
+        <div class="w-full bg-timecut-900 rounded-xl border border-timecut-700 overflow-hidden flex flex-col h-[85vh]">
+          <div class="flex items-center justify-between px-4 py-3 border-b border-timecut-700">
+            <span class="text-sm text-timecut-200">添加摄像头</span>
+            <button onclick="closeGo2RtcAdd()" class="text-timecut-500 hover:text-timecut-300 text-lg leading-none">✕</button>
+          </div>
+          <iframe id="go2rtc-add-frame" class="flex-1 w-full border-0 bg-white" src="http://${host}:1984/add.html"></iframe>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+  }
+  const frame = document.getElementById('go2rtc-add-frame');
+  frame.src = `http://${host}:1984/add.html`;
+  modal.classList.remove('hidden');
+}
+
+window.closeGo2RtcAdd = function() {
+  const modal = document.getElementById('go2rtc-add-modal');
+  if (modal) modal.classList.add('hidden');
+};
+
+window.refreshGo2RtcStreams = function() {
+  toast('正在刷新视频流...', 'info');
+  renderSettings(document.getElementById('page-content'));
 };
 
 window.saveSettings = async function() {
