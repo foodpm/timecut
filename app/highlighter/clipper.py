@@ -23,6 +23,7 @@ class HighlightClipper:
         video_files: list[Path],
         segments: list[tuple[MotionSegment, Path]],
         output_path: Path | None = None,
+        date: str | None = None,
     ) -> Path | None:
         if not segments:
             logger.warning("没有运动片段可剪辑")
@@ -33,8 +34,9 @@ class HighlightClipper:
             return None
         if output_path is None:
             settings.highlights_dir.mkdir(parents=True, exist_ok=True)
-            today = datetime.now().strftime("%Y%m%d")
-            output_path = settings.highlights_dir / f"精华_{today}.mp4"
+            # 用录像日期命名，避免同一天多次生成覆盖同名文件
+            tag = date.replace("-", "") if date else datetime.now().strftime("%Y%m%d")
+            output_path = settings.highlights_dir / f"精华_{tag}.mp4"
         return self._clip_and_concat(selected, output_path)
 
     def _select_segments(

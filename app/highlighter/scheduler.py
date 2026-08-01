@@ -114,6 +114,7 @@ class HighlightScheduler:
             job.set_stage("拼接片段", current="正在拼接片段，视频越长耗时越久...")
             output = self._clipper.create_highlight(
                 video_files=video_files, segments=all_segments,
+                date=date_str,
             )
             if output and output.exists():
                 session = get_session()

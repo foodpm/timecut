@@ -132,7 +132,12 @@ def delete_highlight(highlight_id: int):
         if not hl:
             raise HTTPException(404, "精华视频不存在")
         file_path = Path(settings.data_dir) / hl.file_path
-        if file_path.exists():
+        # 仅当没有其他记录引用同一文件时才删除文件（避免多记录共用文件被误删）
+        refs = session.query(Highlight).filter(
+            Highlight.file_path == hl.file_path,
+            Highlight.id != highlight_id,
+        ).count()
+        if file_path.exists() and refs == 0:
             file_path.unlink()
         session.delete(hl)
         session.commit()
