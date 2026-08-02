@@ -106,7 +106,7 @@ def _init_default_camera():
 app = FastAPI(
     title="TimeCut",
     description="NAS 监控摄像头录像与精华视频管理系统",
-    version="0.5.11",
+    version="0.5.12",
     lifespan=lifespan,
 )
 

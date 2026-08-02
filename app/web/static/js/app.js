@@ -269,6 +269,17 @@ function refreshLive() {
      <div id="rec-list"><div class="text-timecut-400 text-center py-20"><div class="animate-spin w-8 h-8 border-2 border-accent-500 border-t-transparent rounded-full mx-auto mb-3"></div>加载中...</div></div>`;
  }
 
+ function fmtDuration(sec) {
+   // 秒数格式化为 时:分:秒（不足 1 小时省略小时），如 7200 -> 2:00:00，75 -> 01:15
+   sec = Math.round(sec);
+   const h = Math.floor(sec / 3600);
+   const m = Math.floor((sec % 3600) / 60);
+   const s = sec % 60;
+   const mm = String(m).padStart(2, '0');
+   const ss = String(s).padStart(2, '0');
+   return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+ }
+
  function recTable(items) {
    return `
      <div class="bg-timecut-800 rounded-xl border border-timecut-700 overflow-hidden">
@@ -284,7 +295,7 @@ function refreshLive() {
            <tr class="border-b border-timecut-700/50 hover:bg-timecut-700/30 cursor-pointer" onclick="playRecording(${r.id}, '${r.start_time ? new Date(r.start_time).toLocaleString('zh-CN', { hour12: false }) : ''}')">
              <td class="py-2 px-4"><img src="/api/recordings/${r.id}/thumbnail" class="w-24 h-14 object-cover rounded border border-timecut-700" loading="lazy" onerror="this.style.display='none'"></td>
              <td class="py-2.5 px-4 text-timecut-200">${r.start_time ? new Date(r.start_time).toLocaleString('zh-CN', { hour12: false }) : '-'}</td>
-             <td class="py-2.5 px-4 text-right text-timecut-400">${r.duration ? Math.round(r.duration) + 's' : '-'}</td>
+             <td class="py-2.5 px-4 text-right text-timecut-400">${r.duration ? fmtDuration(r.duration) : '-'}</td>
              <td class="py-2.5 px-4 text-right text-timecut-400">${r.file_size_mb} MB</td>
              <td class="py-2.5 px-4 text-right">${r.has_motion ? '<span class="text-green-400">●</span>' : '<span class="text-timecut-600">○</span>'}</td>
            </tr>
