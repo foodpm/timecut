@@ -101,46 +101,25 @@ class RecorderManager:
             rtsp = "rtsp://go2rtc:8554/camera1"
         return rtsp
 
-    def _latest_mp4(self) -> Path | None:
-        """当天录像目录中最近写入的 mp4 文件"""
-        today = datetime.now(self._tz).strftime("%Y-%m-%d")
-        day_dir = settings.recordings_dir / today
-        if not day_dir.exists():
-            return None
-        try:
-            files = sorted(
-                day_dir.glob("*.mp4"),
-                key=lambda p: p.stat().st_mtime, reverse=True,
-            )
-        except OSError:
-            return None
-        return files[0] if files else None
-
-    async def _is_file_still_writing(self, path: Path) -> bool:
-        """检测文件是否仍在持续写入（两次采样大小在增长）"""
-        try:
-            s1 = path.stat().st_size
-        except OSError:
-            return False
-        await asyncio.sleep(2)
-        try:
-            s2 = path.stat().st_size
-        except OSError:
-            return False
-        return s2 > s1
+    def _get_stream_url(self) -> str:
+        rtsp = settings.camera_rtsp_url
+        if not rtsp:
+            rtsp = "rtsp://go2rtc:8554/camera1"
+        return rtsp
 
     async def start(self):
+        # 防重复启动：已有录制进程存活时直接跳过（进程状态比文件大小检测可靠，
+        # 避免写入停顿瞬间误判导致并发启动第二个 ffmpeg）
+        proc = self._process
+        if proc is not None and proc.returncode is None:
+            self._running = True
+            logger.warning("录制进程仍在运行，跳过重复启动")
+            return
         if self._running:
-            logger.warning("录制已在运行中")
-            return
+            # 状态标志与进程不一致（监控异常残留），复位后重新启动
+            logger.warning("录制状态标志残留，复位后重启")
+            self._running = False
         self._stopping = False
-        # 防重复启动：若最近一个录像文件仍在持续写入（已有活跃录制进程），跳过本次启动
-        latest = self._latest_mp4()
-        if latest and await self._is_file_still_writing(latest):
-            logger.warning(
-                f"检测到录像文件仍在写入: {latest.name}，跳过重复启动"
-            )
-            return
         self._ensure_dirs()
         stream_url = self._get_stream_url()
         seg_pattern = self._build_segment_pattern()
@@ -175,27 +154,31 @@ class RecorderManager:
         asyncio.create_task(self._monitor_process())
 
     async def _monitor_process(self):
-        if not self._process:
+        # 绑定本次启动的进程对象，避免 self._process 被后续启动覆盖后监控错乱
+        proc = self._process
+        if proc is None:
             return
         stderr_data = b""
         try:
             while True:
-                line = await self._process.stderr.readline()
+                line = await proc.stderr.readline()
                 if not line:
                     break
                 stderr_data += line
-            await self._process.wait()
+            await proc.wait()
         except Exception as e:
             logger.error(f"监控录制进程异常: {e}")
         finally:
-            self._running = False
-        if self._process.returncode == 0:
+            # 仅当监控的仍是当前进程时才复位标志
+            if self._process is proc:
+                self._running = False
+        if proc.returncode == 0:
             self._failures = 0
             logger.info("录制进程正常退出")
             return
         self._failures += 1
         logger.error(
-            f"录制进程异常退出 (code={self._process.returncode}): "
+            f"录制进程异常退出 (code={proc.returncode}): "
             f"{stderr_data.decode(errors='replace')[-500:]}"
         )
         # 连续失败过多（如 RTSP 地址配置错误）时暂停，避免死循环快速重启
