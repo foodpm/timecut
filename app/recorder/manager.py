@@ -139,9 +139,12 @@ class RecorderManager:
                 "-timeout", "15000000",
                 "-use_wallclock_as_timestamps", "1",
                 "-i", stream_url,
-                # 复用 go2rtc 转码后的 H264/AAC，直接封装不转码，降低 NAS CPU 负担、减少断流
+                # 视频直接封装不转码，降低 NAS CPU 负担；音频必须重编码：
+                # AAC 用 -c:a copy 写进 MPEG-TS 会丢失声道/采样参数（0 channels），
+                # 转封装回 MP4 时整个音轨被丢弃导致录像无声
                 "-c:v", "copy",
-                "-c:a", "copy",
+                "-c:a", "aac",
+                "-b:a", "64k",
                 # MPEG-TS 分段录制：TS 无 moov/封段概念，分段轮转时不会报
                 # "Error writing trailer of output file"，从根上消除分段边界崩溃；
                 # 关闭的分段由 _remux_closed_segments 转封装回 MP4 供网页播放
