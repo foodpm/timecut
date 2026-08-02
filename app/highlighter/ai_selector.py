@@ -1,4 +1,4 @@
-"""大模型精华识别器 - 运动片段抽帧后交由多模态大模型打分"""
+"""大模型精华识别器 - 运动片段抽帧后交由多模态大模型识别事件，再按规则表打分"""
 
 import base64
 import json
@@ -82,14 +82,19 @@ class AISelector:
         return extract_frame(src, ts)
 
     def _score_frame(self, frame: bytes, seg: MotionSegment) -> tuple[int | None, str]:
-        """调用大模型打分，返回 (0-100 分数, 原因文本)"""
+        """调用大模型识别事件类型，套用规则表计算最终分数，返回 (0-100 分数, 原因文本)"""
         b64 = base64.b64encode(frame).decode()
         prompt = (
-            "你是监控视频精华筛选助手。这是家庭监控录像中一个运动片段的某一帧画面。"
-            "请判断该时刻画面是否包含值得保留的事件，例如：人员经过、车辆、包裹、动物、"
-            "陌生人、异常情况等。请只返回 JSON：{\"score\": 0-100, \"reason\": \"简短原因\"}。"
-            "score 表示该片段的保留价值：0=无意义画面（如光线变化、树叶晃动），"
-            "100=非常重要事件。"
+            "你是家庭监控录像回顾助手。这是家庭监控录像中一个运动片段的某一帧画面，"
+            "片段将用于生成\"一天回顾\"精华视频。"
+            "请判断这一瞬间是否值得回顾，例如：家人出现、多人聚会互动、宠物出没、"
+            "收到快递、外出回家等温馨或特别的时刻。"
+            "请只返回 JSON：{\"category\": \"family|animal|package|vehicle|stranger|empty\", "
+            "\"people_count\": 画面中的人数, \"score\": 0-100, \"reason\": \"简短原因\"}。"
+            "category 含义：family=家人出现；animal=宠物或动物；package=快递包裹等特别时刻；"
+            "vehicle=车辆经过；stranger=陌生人或路人；empty=空场景或光线变化。"
+            "people_count 为画面中的人数，0 表示没有人。"
+            "score 表示回顾价值：0=无意义画面，100=非常值得回顾。"
         )
         payload = {
             "model": self.model,
@@ -114,17 +119,87 @@ class AISelector:
             with urllib.request.urlopen(req, timeout=60) as resp:
                 data = json.loads(resp.read().decode())
             content = data["choices"][0]["message"]["content"]
-            score = self._parse_score(content)
-            reason = self._parse_reason(content)
+            score, reason = self._apply_rules(content)
             if score is not None:
                 logger.info(
-                    f"片段 {seg.start:.0f}s~{seg.end:.0f}s AI 评分={score} "
-                    f"reason={reason}"
+                    f"片段 {seg.start:.0f}s~{seg.end:.0f}s 评分={score} reason={reason}"
                 )
             return score, reason
         except Exception as e:
             logger.error(f"AI 识别片段失败: {e}")
             return None, ""
+
+    # 事件类型 → 基础分（"一天回顾"语义：家人最值得回顾，陌生人/空场景基本淘汰）
+    CATEGORY_BASE = {
+        "family": 70,
+        "animal": 60,
+        "package": 55,
+        "vehicle": 35,
+        "stranger": 25,
+        "empty": 10,
+    }
+
+    # 兼容模型返回中文类别
+    CATEGORY_ALIASES = {
+        "family": "family", "家人": "family", "家庭": "family", "家庭成员": "family",
+        "animal": "animal", "动物": "animal", "宠物": "animal",
+        "package": "package", "包裹": "package", "快递": "package",
+        "vehicle": "vehicle", "车辆": "vehicle", "车": "vehicle",
+        "stranger": "stranger", "陌生人": "stranger", "路人": "stranger", "外人": "stranger",
+        "empty": "empty", "空场景": "empty", "空": "empty", "无": "empty",
+    }
+
+    def _apply_rules(self, content) -> tuple[int | None, str]:
+        """解析模型返回，套用规则表计算最终分数"""
+        data = self._parse_json_content(content)
+        if data is None:
+            return self._parse_score(content), self._parse_reason(content)
+        raw = self._parse_score(data.get("score"))
+        category = str(data.get("category", "")).strip().lower()
+        people_count = self._parse_people_count(data.get("people_count"))
+        reason = str(data.get("reason") or "").strip() or self._parse_reason(content)
+        rule = self._rule_score(category, people_count) if category else None
+        if rule is None:
+            return raw, reason
+        # 模型原始分明显更高时，说明识别到规则未覆盖的内容，取较高值兜底
+        if raw is not None and raw - rule >= 20:
+            return raw, reason
+        return rule, reason
+
+    def _rule_score(self, category: str, people_count: int) -> int | None:
+        """按事件类型基础分 + 人数加成计算最终分数，无法识别类型返回 None"""
+        base = self.CATEGORY_BASE.get(self.CATEGORY_ALIASES.get(category, category))
+        if base is None:
+            return None
+        # 画面里有人就加"热闹分"，最多加 30
+        bonus = min(max(people_count, 0), 6) * 5
+        return min(100, base + bonus)
+
+    @staticmethod
+    def _parse_people_count(value) -> int:
+        if isinstance(value, bool):
+            return 0
+        if isinstance(value, (int, float)):
+            return max(0, int(value))
+        if isinstance(value, str):
+            m = re.search(r"\d+", value)
+            if m:
+                return int(m.group())
+        return 0
+
+    @staticmethod
+    def _parse_json_content(content) -> dict | None:
+        """从模型返回文本提取 JSON 对象，失败返回 None"""
+        if not isinstance(content, str):
+            return None
+        start, end = content.find("{"), content.rfind("}")
+        if start < 0 or end <= start:
+            return None
+        try:
+            data = json.loads(content[start : end + 1])
+            return data if isinstance(data, dict) else None
+        except Exception:
+            return None
 
     @staticmethod
     def _parse_reason(content) -> str:

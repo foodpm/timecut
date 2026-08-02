@@ -3,6 +3,7 @@
 import asyncio
 import subprocess
 import logging
+import threading
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -26,6 +27,7 @@ class RecorderManager:
         # 串行化 start/stop，避免并发调用在 create_subprocess_exec 前
         # 同时通过存活检查，导致启动两个 ffmpeg 写同一文件
         self._start_lock = asyncio.Lock()
+        self._remuxing = False  # TS→MP4 转封装并发保护
 
     @property
     def is_recording(self) -> bool:
@@ -96,7 +98,8 @@ class RecorderManager:
         today = datetime.now(self._tz).strftime("%Y-%m-%d")
         seg_dir = settings.recordings_dir / today
         seg_dir.mkdir(parents=True, exist_ok=True)
-        return str(seg_dir / "%Y%m%d_%H%M%S.mp4")
+        # MPEG-TS 中间段：写入稳定，关闭后由 _remux_closed_segments 转封装回 MP4
+        return str(seg_dir / "%Y%m%d_%H%M%S.ts")
 
     def _get_stream_url(self) -> str:
         rtsp = settings.camera_rtsp_url
@@ -138,13 +141,13 @@ class RecorderManager:
                 # 复用 go2rtc 转码后的 H264/AAC，直接封装不转码，降低 NAS CPU 负担、减少断流
                 "-c:v", "copy",
                 "-c:a", "copy",
-                # 分片式 MP4：按关键帧分片，避免时间戳抖动时
-                # "Separator is not found, and chunk exceed the limit" 导致录制反复崩溃重启
-                "-movflags", "+frag_keyframe+empty_moov",
+                # MPEG-TS 分段录制：TS 无 moov/封段概念，分段轮转时不会报
+                # "Error writing trailer of output file"，从根上消除分段边界崩溃；
+                # 关闭的分段由 _remux_closed_segments 转封装回 MP4 供网页播放
                 "-f", "segment",
                 "-segment_time", str(seg_sec),
-                "-segment_format", "mp4",
-                "-segment_format_options", "movflags=+frag_keyframe+empty_moov",
+                "-segment_time_delta", "1",  # 允许稍等关键帧再切分，段边界更干净
+                "-segment_format", "mpegts",
                 "-reset_timestamps", "1",
                 "-strftime", "1",
                 seg_pattern,
@@ -218,22 +221,29 @@ class RecorderManager:
         await self.start()
 
     async def _drain_stderr(self, proc):
-        """持续读取 stderr 直到进程退出，返回完整输出"""
+        """持续读取 stderr 直到进程退出，返回完整输出
+
+        按块读取而非 readline：ffmpeg 某次错误可能单行超过 64KB，
+        asyncio readline 会抛 "Separator is not found, and chunk exceed the limit"
+        ValueError，导致监控任务崩溃后无人再检测进程（录制就永远停着）。
+        """
         data = b""
         while True:
-            line = await proc.stderr.readline()
-            if not line:
+            chunk = await proc.stderr.read(65536)
+            if not chunk:
                 break
-            data += line
+            data += chunk
         return data
 
     def _latest_segment_file(self):
-        """当前正在录制的 segment 文件（目录中最近修改的 mp4）"""
+        """当前正在录制的 segment 文件（目录中最近修改的 ts/mp4）"""
         rec_dir = settings.recordings_dir
         if not rec_dir.exists():
             return None
         files = []
-        for f in rec_dir.rglob("*.mp4"):
+        for f in rec_dir.rglob("*"):
+            if f.suffix.lower() not in (".mp4", ".ts"):
+                continue
             try:
                 files.append((f.stat().st_mtime, f))
             except OSError:
@@ -296,8 +306,80 @@ class RecorderManager:
         await asyncio.sleep(1)
         await self.start()
 
+    def _remux_closed_segments(self):
+        """把已关闭的 TS 分段转封装为 MP4（-c copy 不重编码），完成后删除 TS。
+
+        在后台线程执行避免阻塞事件循环；录制中跳过最新的 TS（可能是正在写的段，
+        误删会让 ffmpeg 写进已删除的 inode，导致该段数据丢失）。
+        """
+        if self._remuxing:
+            return
+        self._remuxing = True
+        try:
+            rec_dir = settings.recordings_dir
+            if not rec_dir.exists():
+                return
+            now = datetime.now().timestamp()
+            ts_files = [p for p in rec_dir.rglob("*.ts")]
+            if not ts_files:
+                return
+            ts_files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+            skip_newest = self._running  # 录制中保护正在写的段
+            for i, fpath in enumerate(ts_files):
+                if skip_newest and i == 0:
+                    continue
+                try:
+                    stat = fpath.stat()
+                except OSError:
+                    continue
+                age = now - stat.st_mtime
+                if age < 90:
+                    continue  # 刚轮转仍在收尾，等下一轮
+                mp4 = fpath.with_suffix(".mp4")
+                if mp4.exists():
+                    # 已转封装过，清掉残留 TS
+                    try:
+                        fpath.unlink()
+                        logger.info(f"清理已转换的 TS: {fpath.name}")
+                    except OSError as e:
+                        logger.warning(f"删除 TS 失败 {fpath}: {e}")
+                    continue
+                if age > 24 * 3600:
+                    # 超过一天仍未转成（如 ffmpeg 持续失败），兜底删除防磁盘泄漏
+                    logger.warning(f"TS 转封装持续失败，删除残留: {fpath.name}")
+                    try:
+                        fpath.unlink()
+                    except OSError:
+                        pass
+                    continue
+                result = subprocess.run(
+                    ["ffmpeg", "-y", "-i", str(fpath),
+                     "-c", "copy", "-movflags", "+faststart", str(mp4)],
+                    capture_output=True, text=True, timeout=600,
+                )
+                if mp4.exists() and mp4.stat().st_size > 0:
+                    try:
+                        fpath.unlink()
+                    except OSError:
+                        pass
+                    logger.info(
+                        f"TS 转封装完成: {mp4.name} "
+                        f"({mp4.stat().st_size / 1024 / 1024:.1f}MB)"
+                    )
+                else:
+                    logger.warning(
+                        f"TS 转封装失败: {fpath.name} {result.stderr[-200:]}"
+                    )
+        except Exception as e:
+            logger.error(f"TS 转封装异常: {e}")
+        finally:
+            self._remuxing = False
+
     def scan_new_recordings(self):
         from database import get_session, Recording
+        rec_dir = settings.recordings_dir
+        if rec_dir.exists() and any(rec_dir.rglob("*.ts")):
+            threading.Thread(target=self._remux_closed_segments, daemon=True).start()
         session = get_session()
         try:
             rec_dir = settings.recordings_dir
