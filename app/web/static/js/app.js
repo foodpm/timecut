@@ -344,7 +344,7 @@ function strategyLabel(s) {
 async function renderHighlights(el) {
    el.innerHTML = '<div class="text-timecut-400 text-center py-20"><div class="animate-spin w-8 h-8 border-2 border-accent-500 border-t-transparent rounded-full mx-auto mb-3"></div>加载中...</div>';
    try {
-     const data = await API.get('/api/highlights?page_size=50');
+     const data = await API.get('/api/highlights?page_size=50&sort=desc');
      el.innerHTML = `
        <div class="mb-4 flex items-center gap-3">
          <h3 class="text-sm font-semibold text-timecut-300">精华视频</h3>

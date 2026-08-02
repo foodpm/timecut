@@ -34,9 +34,11 @@ class HighlightClipper:
             return None
         if output_path is None:
             settings.highlights_dir.mkdir(parents=True, exist_ok=True)
-            # 用录像日期命名，避免同一天多次生成覆盖同名文件
+            # 录像日期 + 生成时刻命名，保证每次生成都是新文件：
+            # 同一天重新生成不会覆盖旧文件，历史精华视频完整保留
             tag = date.replace("-", "") if date else datetime.now().strftime("%Y%m%d")
-            output_path = settings.highlights_dir / f"精华_{tag}.mp4"
+            stamp = datetime.now().strftime("%H%M%S")
+            output_path = settings.highlights_dir / f"精华_{tag}_{stamp}.mp4"
         return self._clip_and_concat(selected, output_path)
 
     def _select_segments(
