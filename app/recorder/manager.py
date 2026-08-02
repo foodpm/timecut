@@ -133,9 +133,10 @@ class RecorderManager:
             cmd = [
                 "ffmpeg",
                 "-rtsp_transport", "tcp",
-                "-timeout", "15000000",  # RTSP socket I/O 超时 15 秒（微秒）
-                "-rw_timeout", "15000000",  # 读写超时 15 秒：上游断流但连接不断时让 ffmpeg 主动报错退出，
-                                            # 避免"进程挂起不写数据、segment 永不轮转"的静默故障
+                # RTSP socket I/O 超时 15 秒（微秒）。注意不能用 -rw_timeout：
+                # Debian 版 ffmpeg 的 RTSP 输入不识别该选项，会导致启动即报
+                # "Option rw_timeout not found" 退出；写卡死由 _watch_write_stall 兜底
+                "-timeout", "15000000",
                 "-use_wallclock_as_timestamps", "1",
                 "-i", stream_url,
                 # 复用 go2rtc 转码后的 H264/AAC，直接封装不转码，降低 NAS CPU 负担、减少断流
