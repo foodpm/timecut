@@ -130,7 +130,9 @@ class RecorderManager:
             cmd = [
                 "ffmpeg",
                 "-rtsp_transport", "tcp",
-                "-timeout", "15000000",  # socket I/O 超时 15 秒（微秒，防瞬时卡顿误判断流）
+                "-timeout", "15000000",  # RTSP socket I/O 超时 15 秒（微秒）
+                "-rw_timeout", "15000000",  # 读写超时 15 秒：上游断流但连接不断时让 ffmpeg 主动报错退出，
+                                            # 避免"进程挂起不写数据、segment 永不轮转"的静默故障
                 "-use_wallclock_as_timestamps", "1",
                 "-i", stream_url,
                 # 复用 go2rtc 转码后的 H264/AAC，直接封装不转码，降低 NAS CPU 负担、减少断流
@@ -162,15 +164,29 @@ class RecorderManager:
         if proc is None:
             return
         stderr_data = b""
+        # 并行监控：进程退出检测 + 写卡死检测，任一触发即结束监控
+        # （上游断流但 TCP 连接不断时 ffmpeg 会静默挂起，仅靠进程退出检测无法感知）
+        stderr_task = asyncio.create_task(self._drain_stderr(proc))
+        stall_task = asyncio.create_task(self._watch_write_stall(proc))
+        await asyncio.wait({stderr_task, stall_task}, return_when=asyncio.FIRST_COMPLETED)
+        for t in (stderr_task, stall_task):
+            if not t.done():
+                t.cancel()
+        if stderr_task.done():
+            try:
+                stderr_data = stderr_task.result()
+            except Exception:
+                stderr_data = b""
         try:
-            while True:
-                line = await proc.stderr.readline()
-                if not line:
-                    break
-                stderr_data += line
-            await proc.wait()
-        except Exception as e:
-            logger.error(f"监控录制进程异常: {e}")
+            await asyncio.wait_for(proc.wait(), timeout=10)
+        except asyncio.TimeoutError:
+            proc.kill()
+            try:
+                await proc.wait()
+            except ProcessLookupError:
+                pass
+        except ProcessLookupError:
+            pass
         finally:
             # 仅当监控的仍是当前进程时才复位标志
             if self._process is proc:
@@ -200,6 +216,64 @@ class RecorderManager:
             return
         logger.info("录制进程异常退出，正在自动重启...")
         await self.start()
+
+    async def _drain_stderr(self, proc):
+        """持续读取 stderr 直到进程退出，返回完整输出"""
+        data = b""
+        while True:
+            line = await proc.stderr.readline()
+            if not line:
+                break
+            data += line
+        return data
+
+    def _latest_segment_file(self):
+        """当前正在录制的 segment 文件（目录中最近修改的 mp4）"""
+        rec_dir = settings.recordings_dir
+        if not rec_dir.exists():
+            return None
+        files = []
+        for f in rec_dir.rglob("*.mp4"):
+            try:
+                files.append((f.stat().st_mtime, f))
+            except OSError:
+                continue
+        if not files:
+            return None
+        files.sort(key=lambda x: x[0], reverse=True)
+        return files[0][1]
+
+    async def _watch_write_stall(self, proc):
+        """写卡死检测：segment 文件长时间无增长说明 ffmpeg 挂起（如上游断流但连接不断），
+        达到阈值后强制终止进程，让主监控走自动重启分支"""
+        last_size = None
+        stall_count = 0
+        while True:
+            await asyncio.sleep(60)
+            if self._process is not proc:
+                return  # 已被新进程替换，退出检测
+            try:
+                current = self._latest_segment_file()
+                size = current.stat().st_size if current else None
+            except OSError:
+                size = None
+            if size is not None and last_size is not None and size == last_size:
+                stall_count += 1
+                logger.warning(
+                    f"录制文件 {current.name if current else ''} 大小无增长"
+                    f"（{stall_count} 次，约 {stall_count * 60} 秒）"
+                )
+            else:
+                if size is not None:
+                    last_size = size
+                stall_count = 0
+            if stall_count >= 3:
+                logger.error("录制文件超 3 分钟无增长，判定 ffmpeg 挂起，强制终止进程")
+                try:
+                    proc.kill()
+                except ProcessLookupError:
+                    pass
+                return
 
     async def stop(self):
         self._stopping = True
