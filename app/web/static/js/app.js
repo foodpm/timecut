@@ -229,67 +229,100 @@ function refreshLive() {
  async function renderRecordings(el) {
    el.innerHTML = '<div class="text-timecut-400 text-center py-20"><div class="animate-spin w-8 h-8 border-2 border-accent-500 border-t-transparent rounded-full mx-auto mb-3"></div>加载中...</div>';
    try {
-     const [recs, dates] = await Promise.all([
-       API.get('/api/recordings?page_size=100'), API.get('/api/recordings/dates'),
-     ]);
-     el.innerHTML = `
-       <div class="mb-4 flex items-center gap-3 flex-wrap">
-         <h3 class="text-sm font-semibold text-timecut-300">录像文件</h3>
-         <span class="text-xs text-timecut-500">共 ${recs.total} 个文件</span>
-         <div class="flex gap-2 ml-auto flex-wrap">
-           ${(dates.dates || []).slice(0, 14).map(d => `<button onclick="filterDate('${d}')" class="btn text-xs bg-timecut-800 hover:bg-timecut-700 text-timecut-400 px-3 py-1.5 rounded-lg border border-timecut-700">${d}</button>`).join('')}
-         </div>
-       </div>
-       ${recs.items?.length ? `
-       <div class="bg-timecut-800 rounded-xl border border-timecut-700 overflow-hidden">
-         <table class="w-full text-sm">
-           <thead><tr class="border-b border-timecut-700 text-timecut-500 text-xs">
-            <th class="text-left py-3 px-4">画面</th>
-            <th class="text-left py-3 px-4">时间</th>
-            <th class="text-right py-3 px-4">时长</th>
-            <th class="text-right py-3 px-4">大小</th>
-            <th class="text-right py-3 px-4">运动</th>
-          </tr></thead>
-          <tbody>${recs.items.map(r => `
-            <tr class="border-b border-timecut-700/50 hover:bg-timecut-700/30 cursor-pointer" onclick="playRecording(${r.id}, '${r.start_time ? new Date(r.start_time).toLocaleString('zh-CN', { hour12: false }) : ''}')">
-              <td class="py-2 px-4"><img src="/api/recordings/${r.id}/thumbnail" class="w-24 h-14 object-cover rounded border border-timecut-700" loading="lazy" onerror="this.style.display='none'"></td>
-              <td class="py-2.5 px-4 text-timecut-200">${r.start_time ? new Date(r.start_time).toLocaleString('zh-CN', { hour12: false }) : '-'}</td>
-               <td class="py-2.5 px-4 text-right text-timecut-400">${r.duration ? Math.round(r.duration) + 's' : '-'}</td>
-               <td class="py-2.5 px-4 text-right text-timecut-400">${r.file_size_mb} MB</td>
-               <td class="py-2.5 px-4 text-right">${r.has_motion ? '<span class="text-green-400">●</span>' : '<span class="text-timecut-600">○</span>'}</td>
-             </tr>
-           `).join('')}</tbody>
-         </table>
-       </div>` : '<div class="text-timecut-500 text-center py-16 bg-timecut-800 rounded-xl border border-timecut-700"><svg class="w-12 h-12 mx-auto mb-3 text-timecut-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>暂无录像文件</div>'}
-     `;
+     const dates = (await API.get('/api/recordings/dates')).dates || [];
+     if (!dates.length) {
+       el.innerHTML = '<div class="text-timecut-500 text-center py-16 bg-timecut-800 rounded-xl border border-timecut-700">暂无录像文件</div>';
+       return;
+     }
+     const today = fmtDate(new Date());
+     // 默认当天；当天无录像时取最近一天
+     const active = dates.includes(today) ? today : dates[0];
+     renderRecPicker(el, dates, active);
+     await renderRecList(active);
    } catch (e) { el.innerHTML = `<div class="text-red-400 text-center py-20">加载失败: ${e.message}</div>`; }
  }
- 
- window.filterDate = async function(date) {
-   const el = document.getElementById('page-content');
-   el.innerHTML = '<div class="text-timecut-400 text-center py-20"><div class="animate-spin w-8 h-8 border-2 border-accent-500 border-t-transparent rounded-full mx-auto mb-3"></div>加载中...</div>';
+
+ function fmtDate(d) {
+   const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, '0'), day = String(d.getDate()).padStart(2, '0');
+   return `${y}-${m}-${day}`;
+ }
+
+ function renderRecPicker(el, dates, active) {
+   const years = [...new Set(dates.map(d => d.slice(0, 4)))].sort().reverse();
+   const [y, m] = active.split('-');
+   const months = [...new Set(dates.filter(d => d.startsWith(y + '-')).map(d => d.slice(5, 7)))].sort();
+   const days = dates.filter(d => d.startsWith(`${y}-${m}-`)).map(d => d.slice(8)).sort().reverse();
+   el.innerHTML = `
+     <div class="mb-4 flex items-center gap-2 flex-wrap">
+       <h3 class="text-sm font-semibold text-timecut-300">录像文件</h3>
+       <select id="rec-y" onchange="recReload()" class="bg-timecut-800 border border-timecut-700 rounded-lg px-2 py-1.5 text-xs text-timecut-200 focus:outline-none focus:border-accent-500">
+         ${years.map(v => `<option value="${v}"${v === y ? ' selected' : ''}>${v}年</option>`).join('')}
+       </select>
+       <select id="rec-m" onchange="recReload()" class="bg-timecut-800 border border-timecut-700 rounded-lg px-2 py-1.5 text-xs text-timecut-200 focus:outline-none focus:border-accent-500">
+         ${months.map(v => `<option value="${v}"${v === m ? ' selected' : ''}>${Number(v)}月</option>`).join('')}
+       </select>
+       <select id="rec-d" onchange="recReload()" class="bg-timecut-800 border border-timecut-700 rounded-lg px-2 py-1.5 text-xs text-timecut-200 focus:outline-none focus:border-accent-500">
+         ${days.map(v => `<option value="${v}"${v === active.slice(8) ? ' selected' : ''}>${Number(v)}日</option>`).join('')}
+       </select>
+       <span id="rec-count" class="text-xs text-timecut-500"></span>
+     </div>
+     <div id="rec-list"><div class="text-timecut-400 text-center py-20"><div class="animate-spin w-8 h-8 border-2 border-accent-500 border-t-transparent rounded-full mx-auto mb-3"></div>加载中...</div></div>`;
+ }
+
+ function recTable(items) {
+   return `
+     <div class="bg-timecut-800 rounded-xl border border-timecut-700 overflow-hidden">
+       <table class="w-full text-sm">
+         <thead><tr class="border-b border-timecut-700 text-timecut-500 text-xs">
+           <th class="text-left py-3 px-4">画面</th>
+           <th class="text-left py-3 px-4">时间</th>
+           <th class="text-right py-3 px-4">时长</th>
+           <th class="text-right py-3 px-4">大小</th>
+           <th class="text-right py-3 px-4">运动</th>
+         </tr></thead>
+         <tbody>${items.map(r => `
+           <tr class="border-b border-timecut-700/50 hover:bg-timecut-700/30 cursor-pointer" onclick="playRecording(${r.id}, '${r.start_time ? new Date(r.start_time).toLocaleString('zh-CN', { hour12: false }) : ''}')">
+             <td class="py-2 px-4"><img src="/api/recordings/${r.id}/thumbnail" class="w-24 h-14 object-cover rounded border border-timecut-700" loading="lazy" onerror="this.style.display='none'"></td>
+             <td class="py-2.5 px-4 text-timecut-200">${r.start_time ? new Date(r.start_time).toLocaleString('zh-CN', { hour12: false }) : '-'}</td>
+             <td class="py-2.5 px-4 text-right text-timecut-400">${r.duration ? Math.round(r.duration) + 's' : '-'}</td>
+             <td class="py-2.5 px-4 text-right text-timecut-400">${r.file_size_mb} MB</td>
+             <td class="py-2.5 px-4 text-right">${r.has_motion ? '<span class="text-green-400">●</span>' : '<span class="text-timecut-600">○</span>'}</td>
+           </tr>
+         `).join('')}</tbody>
+       </table>
+     </div>`;
+ }
+
+ async function renderRecList(date) {
+   const list = document.getElementById('rec-list');
+   const countEl = document.getElementById('rec-count');
+   if (!list) return;
+   list.innerHTML = '<div class="text-timecut-400 text-center py-20"><div class="animate-spin w-8 h-8 border-2 border-accent-500 border-t-transparent rounded-full mx-auto mb-3"></div>加载中...</div>';
    try {
      const recs = await API.get(`/api/recordings?date=${date}&page_size=100`);
-     el.innerHTML = `
-       <div class="mb-4 flex items-center gap-3"><button onclick="navigate('recordings')" class="btn text-xs bg-timecut-700 hover:bg-timecut-600 text-timecut-300 px-3 py-1.5 rounded-lg">← 返回</button><span class="text-sm text-timecut-300">${date}</span><span class="text-xs text-timecut-500">${recs.total} 个文件</span></div>
-       ${recs.items?.length ? `
-       <div class="bg-timecut-800 rounded-xl border border-timecut-700 overflow-hidden">
-         <table class="w-full text-sm">
-           <thead><tr class="border-b border-timecut-700 text-timecut-500 text-xs">
-            <th class="text-left py-3 px-4">画面</th><th class="text-left py-3 px-4">时间</th><th class="text-right py-3 px-4">时长</th><th class="text-right py-3 px-4">大小</th>
-          </tr></thead>
-          <tbody>${recs.items.map(r => `
-            <tr class="border-b border-timecut-700/50 hover:bg-timecut-700/30 cursor-pointer" onclick="playRecording(${r.id}, '${r.start_time ? new Date(r.start_time).toLocaleString('zh-CN', { hour12: false }) : ''}')">
-              <td class="py-2 px-4"><img src="/api/recordings/${r.id}/thumbnail" class="w-24 h-14 object-cover rounded border border-timecut-700" loading="lazy" onerror="this.style.display='none'"></td>
-              <td class="py-2.5 px-4 text-timecut-200">${r.start_time ? new Date(r.start_time).toLocaleString('zh-CN', { hour12: false }) : '-'}</td>
-               <td class="py-2.5 px-4 text-right text-timecut-400">${r.duration ? Math.round(r.duration) + 's' : '-'}</td>
-               <td class="py-2.5 px-4 text-right text-timecut-400">${r.file_size_mb} MB</td>
-             </tr>
-           `).join('')}</tbody>
-         </table>
-       </div>` : '<div class="text-timecut-500 text-center py-16">该日期无录像</div>'}
-     `;
-   } catch (e) { el.innerHTML = `<div class="text-red-400 text-center py-20">加载失败: ${e.message}</div>`; }
+     if (countEl) countEl.textContent = `${date} · ${recs.total} 个文件`;
+     list.innerHTML = recs.items?.length
+       ? recTable(recs.items)
+       : '<div class="text-timecut-500 text-center py-16 bg-timecut-800 rounded-xl border border-timecut-700">该日期无录像</div>';
+   } catch (e) { list.innerHTML = `<div class="text-red-400 text-center py-20">加载失败: ${e.message}</div>`; }
+ }
+
+ window.recReload = async function() {
+   const el = document.getElementById('page-content');
+   const y = document.getElementById('rec-y').value;
+   const m = document.getElementById('rec-m').value;
+   const d = document.getElementById('rec-d').value;
+   try {
+     const dates = (await API.get('/api/recordings/dates')).dates || [];
+     // 年份变化后月份可能不可用，月份变化后日期可能不可用，自动回退到第一个可用项
+     const months = [...new Set(dates.filter(x => x.startsWith(y + '-')).map(x => x.slice(5, 7)))].sort();
+     const nm = months.includes(m) ? m : (months[0] || '');
+     const days = dates.filter(x => x.startsWith(`${y}-${nm}-`)).map(x => x.slice(8)).sort().reverse();
+     const nd = days.includes(d) ? d : (days[0] || '');
+     if (!nm || !nd) return;
+     renderRecPicker(el, dates, `${y}-${nm}-${nd}`);
+     await renderRecList(`${y}-${nm}-${nd}`);
+   } catch (e) { toast(`加载失败: ${e.message}`, 'error'); }
  };
  
  // ══════════ 精华视频 ══════════
