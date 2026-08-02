@@ -23,6 +23,9 @@ class RecorderManager:
         self._failures = 0
         self._scheduler_task: asyncio.Task | None = None
         self._tz = ZoneInfo(settings.tz)
+        # 串行化 start/stop，避免并发调用在 create_subprocess_exec 前
+        # 同时通过存活检查，导致启动两个 ffmpeg 写同一文件
+        self._start_lock = asyncio.Lock()
 
     @property
     def is_recording(self) -> bool:
@@ -108,50 +111,50 @@ class RecorderManager:
         return rtsp
 
     async def start(self):
-        # 防重复启动：已有录制进程存活时直接跳过（进程状态比文件大小检测可靠，
-        # 避免写入停顿瞬间误判导致并发启动第二个 ffmpeg）
-        proc = self._process
-        if proc is not None and proc.returncode is None:
+        async with self._start_lock:
+            # 防重复启动：已有录制进程存活时直接跳过（进程状态比文件大小检测可靠）
+            proc = self._process
+            if proc is not None and proc.returncode is None:
+                self._running = True
+                logger.warning("录制进程仍在运行，跳过重复启动")
+                return
+            if self._running:
+                # 状态标志与进程不一致（监控异常残留），复位后重新启动
+                logger.warning("录制状态标志残留，复位后重启")
+                self._running = False
+            self._stopping = False
+            self._ensure_dirs()
+            stream_url = self._get_stream_url()
+            seg_pattern = self._build_segment_pattern()
+            seg_sec = settings.recording_segment_minutes * 60
+            cmd = [
+                "ffmpeg",
+                "-rtsp_transport", "tcp",
+                "-timeout", "15000000",  # socket I/O 超时 15 秒（微秒，防瞬时卡顿误判断流）
+                "-use_wallclock_as_timestamps", "1",
+                "-i", stream_url,
+                # 复用 go2rtc 转码后的 H264/AAC，直接封装不转码，降低 NAS CPU 负担、减少断流
+                "-c:v", "copy",
+                "-c:a", "copy",
+                # 分片式 MP4：按关键帧分片，避免时间戳抖动时
+                # "Separator is not found, and chunk exceed the limit" 导致录制反复崩溃重启
+                "-movflags", "+frag_keyframe+empty_moov",
+                "-f", "segment",
+                "-segment_time", str(seg_sec),
+                "-segment_format", "mp4",
+                "-segment_format_options", "movflags=+frag_keyframe+empty_moov",
+                "-reset_timestamps", "1",
+                "-strftime", "1",
+                seg_pattern,
+            ]
+            logger.info(f"启动录制: {' '.join(cmd)}")
             self._running = True
-            logger.warning("录制进程仍在运行，跳过重复启动")
-            return
-        if self._running:
-            # 状态标志与进程不一致（监控异常残留），复位后重新启动
-            logger.warning("录制状态标志残留，复位后重启")
-            self._running = False
-        self._stopping = False
-        self._ensure_dirs()
-        stream_url = self._get_stream_url()
-        seg_pattern = self._build_segment_pattern()
-        seg_sec = settings.recording_segment_minutes * 60
-        cmd = [
-            "ffmpeg",
-            "-rtsp_transport", "tcp",
-            "-timeout", "15000000",  # socket I/O 超时 15 秒（微秒，防瞬时卡顿误判断流）
-            "-use_wallclock_as_timestamps", "1",
-            "-i", stream_url,
-            # 复用 go2rtc 转码后的 H264/AAC，直接封装不转码，降低 NAS CPU 负担、减少断流
-            "-c:v", "copy",
-            "-c:a", "copy",
-            # 分片式 MP4：按关键帧分片，避免时间戳抖动时
-            # "Separator is not found, and chunk exceed the limit" 导致录制反复崩溃重启
-            "-movflags", "+frag_keyframe+empty_moov",
-            "-f", "segment",
-            "-segment_time", str(seg_sec),
-            "-segment_format", "mp4",
-            "-segment_format_options", "movflags=+frag_keyframe+empty_moov",
-            "-reset_timestamps", "1",
-            "-strftime", "1",
-            seg_pattern,
-        ]
-        logger.info(f"启动录制: {' '.join(cmd)}")
-        self._running = True
-        self._process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        asyncio.create_task(self._monitor_process())
+            self._process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            asyncio.create_task(self._monitor_process())
 
     async def _monitor_process(self):
         # 绑定本次启动的进程对象，避免 self._process 被后续启动覆盖后监控错乱
