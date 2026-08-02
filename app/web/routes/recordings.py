@@ -38,6 +38,8 @@ def list_recordings(
 ):
     session = get_session()
     try:
+        # 清理孤儿记录：文件已被删除（如用户手动删除录像文件）的记录直接从数据库移除
+        _purge_missing_recordings(session)
         query = session.query(Recording).order_by(Recording.start_time.desc())
         if date:
             query = query.filter(Recording.start_time >= date)
@@ -59,6 +61,25 @@ def list_recordings(
         }
     finally:
         session.close()
+
+
+def _purge_missing_recordings(session):
+    """删除数据库中文件已不存在的记录（用户在文件系统删除录像后保持列表干净）"""
+    try:
+        rows = session.query(Recording).all()
+        missing = [
+            r.id for r in rows
+            if not (settings.recordings_dir / r.file_path).exists()
+        ]
+        if missing:
+            session.query(Recording).filter(
+                Recording.id.in_(missing)
+            ).delete(synchronize_session=False)
+            session.commit()
+            logger.info(f"清理 {len(missing)} 条录像记录（对应文件已被删除）")
+    except Exception as e:
+        session.rollback()
+        logger.warning(f"清理孤儿录像记录失败: {e}")
 
 
 @router.get("/play/{recording_id}")

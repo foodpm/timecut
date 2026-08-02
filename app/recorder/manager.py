@@ -101,11 +101,46 @@ class RecorderManager:
             rtsp = "rtsp://go2rtc:8554/camera1"
         return rtsp
 
+    def _latest_mp4(self) -> Path | None:
+        """当天录像目录中最近写入的 mp4 文件"""
+        today = datetime.now(self._tz).strftime("%Y-%m-%d")
+        day_dir = settings.recordings_dir / today
+        if not day_dir.exists():
+            return None
+        try:
+            files = sorted(
+                day_dir.glob("*.mp4"),
+                key=lambda p: p.stat().st_mtime, reverse=True,
+            )
+        except OSError:
+            return None
+        return files[0] if files else None
+
+    async def _is_file_still_writing(self, path: Path) -> bool:
+        """检测文件是否仍在持续写入（两次采样大小在增长）"""
+        try:
+            s1 = path.stat().st_size
+        except OSError:
+            return False
+        await asyncio.sleep(2)
+        try:
+            s2 = path.stat().st_size
+        except OSError:
+            return False
+        return s2 > s1
+
     async def start(self):
         if self._running:
             logger.warning("录制已在运行中")
             return
         self._stopping = False
+        # 防重复启动：若最近一个录像文件仍在持续写入（已有活跃录制进程），跳过本次启动
+        latest = self._latest_mp4()
+        if latest and await self._is_file_still_writing(latest):
+            logger.warning(
+                f"检测到录像文件仍在写入: {latest.name}，跳过重复启动"
+            )
+            return
         self._ensure_dirs()
         stream_url = self._get_stream_url()
         seg_pattern = self._build_segment_pattern()
