@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     ai_max_segments: int = 20
     # ── 大模型日记 ──
     diary_enabled: bool = False
+    diary_max_segments: int = 50
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
@@ -52,6 +53,11 @@ class Settings(BaseSettings):
     @property
     def log_dir(self) -> Path:
         return Path(self.data_dir) / "logs"
+
+    @property
+    def diaries_dir(self) -> Path:
+        """日记文件目录（每天一个 Markdown，可直接阅读）"""
+        return Path(self.data_dir) / "diaries"
 
     @property
     def settings_file(self) -> Path:

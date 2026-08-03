@@ -45,7 +45,7 @@ class DiaryGenerator:
         self.base_url = settings.ai_base_url.rstrip("/")
         self.model = settings.ai_model
         self.api_key = settings.ai_api_key
-        self.max_events = max(1, settings.ai_max_segments)
+        self.max_events = max(1, settings.diary_max_segments)
 
     def generate_for_date(self, date: str) -> str | None:
         if not self.api_key:
@@ -109,11 +109,12 @@ class DiaryGenerator:
     # ── 大模型调用 ──
     def _describe_frame(self, frame: bytes, event_dt: datetime) -> str:
         prompt = (
-            "你是家庭监控日记助手。这是某天某个时刻的监控画面。"
+            "你是家庭监控录像日志助手。这是某天某个时刻的监控画面。"
             f"当前时刻：{event_dt.strftime('%Y-%m-%d %H:%M')}。"
-            "请用一句话描述画面中发生的事（例如：有人经过门口、车辆停靠、快递放门口、"
-            "动物路过、画面异常等）。如果画面没有值得记录的内容（如空镜头、光线变化、"
-            "树叶晃动），只回答「无」。不要输出其他内容。"
+            "请仔细观察画面：如果画面里有人，用 1-2 句话描述画面里的人正在做什么——"
+            "有几个人、正在做什么动作、进出方向、手里有没有拿东西、有没有停顿或停留等行为细节；"
+            "如果画面里没有人，也没有值得记录的事（空镜头、光线变化、树叶晃动等），"
+            "只回答「无」。不要输出其他内容。"
         )
         payload = {
             "model": self.model,
@@ -125,7 +126,7 @@ class DiaryGenerator:
                         "url": "data:image/jpeg;base64," + base64.b64encode(frame).decode()}},
                 ],
             }],
-            "max_tokens": 80,
+            "max_tokens": 150,
         }
         text = self._chat(payload)
         if not text:
@@ -133,23 +134,16 @@ class DiaryGenerator:
         text = text.strip().strip("。").strip()
         if text in ("无", "没有", "无内容", "无事件", "无明显事件"):
             return ""
-        return text[:80]
+        return text[:150]
 
     def _compose_diary(self, date: str, events: list) -> str:
-        lines = "\n".join(f"{dt.strftime('%H:%M')} - {desc}" for dt, desc in events)
-        prompt = (
-            f"以下是某天家庭监控捕捉到的事件列表（时间 - 事件）：\n{lines}\n\n"
-            "请以日记的口吻写一篇当天的简短日记（200 字以内），按时间顺序自然叙述"
-            "当天家里门口发生了什么。语气自然真实，像一个普通人的日记。只返回日记正文，"
-            "不要标题、不要解释。"
-        )
-        payload = {
-            "model": self.model,
-            "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": 500,
-        }
-        text = self._chat(payload)
-        return text.strip() if text else None
+        """组装行为描述式日志：按时间线列出画面里的人在做什么（无需二次模型调用）"""
+        lines = [f"# {date} 见闻记录", ""]
+        for dt, desc in events:
+            lines.append(f"## {dt.strftime('%H:%M')}")
+            lines.append(desc)
+            lines.append("")
+        return "\n".join(lines).strip()
 
     def _chat(self, payload: dict) -> str | None:
         req = urllib.request.Request(
@@ -180,6 +174,15 @@ class DiaryGenerator:
 
     @staticmethod
     def _save(date: str, content: str):
+        """日记写入文件（每天一个 Markdown，可直接阅读），并在数据库保留记录"""
+        diaries = settings.diaries_dir
+        diaries.mkdir(parents=True, exist_ok=True)
+        fpath = diaries / f"{date}.md"
+        try:
+            fpath.write_text(content, encoding="utf-8")
+            logger.info(f"日记文件已保存: {fpath}")
+        except Exception as e:
+            logger.error(f"写入日记文件失败: {e}")
         session = get_session()
         try:
             rec = session.query(Diary).filter(Diary.date == date).first()

@@ -1,7 +1,10 @@
 """精华视频管理 API"""
 
 import logging
+import re
+import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 from fastapi import APIRouter, Query, HTTPException, Response
@@ -60,7 +63,7 @@ def list_highlights(page: int = Query(1, ge=1), page_size: int = Query(50, ge=1,
 
 @router.get("/{highlight_id}/thumbnail")
 def highlight_thumbnail(highlight_id: int):
-    """返回精华视频缩略图（首次请求时用 FFmpeg 提取一帧并缓存）"""
+    """返回精华视频缩略图（视频更新后自动重新生成）"""
     session = get_session()
     try:
         hl = session.query(Highlight).filter(Highlight.id == highlight_id).first()
@@ -72,19 +75,81 @@ def highlight_thumbnail(highlight_id: int):
     if not video_path.exists():
         raise HTTPException(404, "视频文件不存在")
     thumb_path = Path(settings.data_dir) / "highlights" / "thumbs" / f"{video_path.stem}.jpg"
-    if not thumb_path.exists():
+    # 视频比缓存新（内容被重新生成过）时强制重新抽帧，避免旧封面残留
+    if not thumb_path.exists() or video_path.stat().st_mtime > thumb_path.stat().st_mtime:
         thumb_path.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            subprocess.run(
-                ["ffmpeg", "-y", "-ss", "2", "-i", str(video_path),
-                 "-frames:v", "1", "-vf", "scale=320:-1", "-q:v", "5", str(thumb_path)],
-                capture_output=True, text=True, timeout=30,
-            )
-        except Exception as e:
-            logger.warning(f"生成精华缩略图失败: {e}")
-        if not thumb_path.exists() or thumb_path.stat().st_size == 0:
-            return Response(status_code=204)
+        if not _generate_thumbnail(video_path, thumb_path):
+            if not thumb_path.exists():
+                return Response(status_code=204)
     return FileResponse(str(thumb_path), media_type="image/jpeg")
+
+
+def _generate_thumbnail(video_path: Path, thumb_path: Path) -> bool:
+    """多时间点采样抽帧，选曝光最均衡的一帧作为封面（避免黑场/过曝/糊帧）"""
+    duration = _probe_duration(video_path)
+    offsets = [2.0]
+    if duration and duration > 5:
+        offsets += [duration * 0.2, duration * 0.5]
+    with tempfile.TemporaryDirectory(prefix="timecut_thumb_") as td:
+        best = None  # (score, tmp_path)
+        for i, ts in enumerate(offsets):
+            tmp = Path(td) / f"f{i}.jpg"
+            try:
+                subprocess.run(
+                    ["ffmpeg", "-y", "-ss", str(ts), "-i", str(video_path),
+                     "-frames:v", "1", "-vf", "scale=320:-1", "-q:v", "5", str(tmp)],
+                    capture_output=True, text=True, timeout=30,
+                )
+            except Exception:
+                continue
+            if not tmp.exists() or tmp.stat().st_size == 0:
+                continue
+            yavg = _frame_luma(tmp)
+            if yavg is None:
+                continue
+            # 亮度越接近 128 越均衡；太暗/过曝直接记低分
+            score = -abs(yavg - 128) if 25 <= yavg <= 235 else -100 - abs(yavg - 128)
+            if best is None or score > best[0]:
+                best = (score, tmp)
+        if best:
+            try:
+                shutil.copy(best[1], thumb_path)
+                return True
+            except Exception:
+                return False
+    return False
+
+
+def _probe_duration(video_path: Path) -> float:
+    try:
+        result = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1", str(video_path)],
+            capture_output=True, text=True, timeout=30,
+        )
+        if result.stdout:
+            return float(result.stdout.strip())
+    except Exception:
+        pass
+    return 0.0
+
+
+def _frame_luma(image_path: Path) -> float | None:
+    """用 ffmpeg signalstats 计算图片平均亮度（YAVG 0-255），失败返回 None"""
+    try:
+        result = subprocess.run(
+            ["ffmpeg", "-i", str(image_path),
+             "-vf", "signalstats,metadata=print:key=lavfi.signalstats.YAVG",
+             "-f", "null", "-"],
+            capture_output=True, text=True, timeout=30,
+        )
+        for line in result.stderr.splitlines():
+            m = re.search(r"lavfi\.signalstats\.YAVG=([\d.]+)", line)
+            if m:
+                return float(m.group(1))
+    except Exception:
+        pass
+    return None
 
 
 @router.get("/play/{highlight_id}")

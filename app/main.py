@@ -46,6 +46,7 @@ async def lifespan(app: FastAPI):
     settings.highlights_dir.mkdir(parents=True, exist_ok=True)
     settings.db_path.parent.mkdir(parents=True, exist_ok=True)
     settings.log_dir.mkdir(parents=True, exist_ok=True)
+    settings.diaries_dir.mkdir(parents=True, exist_ok=True)
 
     init_db()
     logger.info("数据库初始化完成")
@@ -180,7 +181,7 @@ def health():
     return {
         "status": "ok",
         "recording": recorder.is_recording,
-        "version": "0.5.13",
+        "version": "0.5.14",
     }
 
 

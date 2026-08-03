@@ -751,9 +751,10 @@ window.deleteHighlight = async function(id) {
              </div>
            </div>
            <div class="pt-4 border-t border-timecut-700">
-             <div class="text-xs font-semibold text-timecut-300 mb-3">日记（大模型总结当天事件）</div>
+             <div class="text-xs font-semibold text-timecut-300 mb-3">日记（大模型记录当天画面）</div>
              <div class="flex items-center gap-3"><label class="text-xs text-timecut-500">自动生成日记</label><button id="s-diary-toggle" onclick="toggleDiary()" class="btn relative w-12 h-6 rounded-full transition-colors ${s.diary_enabled ? 'bg-accent-600' : 'bg-timecut-600'}"><span class="absolute left-0 top-0.5 w-5 h-5 bg-white rounded-full transition-transform ${s.diary_enabled ? 'translate-x-[26px]' : 'translate-x-0.5'}"></span></button></div>
-             <div class="text-[11px] text-timecut-500 leading-relaxed mt-2">开启后每天与精华检测同时分析前一天录像：对每个运动片段抽帧，用大模型描述画面中发生的事，再汇总成一篇日记。复用上方大模型的 API 地址 / 模型 / Key，每日最多分析的片段数与精华识别一致。</div>
+             <div class="flex items-center gap-3 mt-3"><label class="text-xs text-timecut-500">每日分析片段数</label><input id="s-diary-max" type="number" min="5" max="200" class="w-24 bg-timecut-900 border border-timecut-700 rounded-lg px-3 py-2 text-sm text-timecut-200 focus:outline-none focus:border-accent-500" value="${s.diary_max_segments ?? 50}"></div>
+             <div class="text-[11px] text-timecut-500 leading-relaxed mt-2">开启后每天与精华检测同时分析前一天录像：对运动片段抽帧，用大模型描述画面里的人在做什么，生成可直接阅读的日记文件（/data/diaries/日期.md）。「每日分析片段数」控制分析的运动片段数量上限（每个片段 1 次模型调用）。</div>
            </div>
          </div>
        </div>
@@ -906,6 +907,7 @@ window.saveSettings = async function() {
      ai_api_key: document.getElementById('s-ai-key')?.value,
      ai_max_segments: parseInt(document.getElementById('s-ai-max')?.value) || 20,
     diary_enabled: document.getElementById('s-diary-toggle')?.classList.contains('bg-accent-600') || false,
+    diary_max_segments: parseInt(document.getElementById('s-diary-max')?.value) || 50,
    };
    try {
      await API.put('/api/settings', data);

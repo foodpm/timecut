@@ -47,15 +47,22 @@ def diary_job_status():
 
 @router.get("/{date}")
 def get_diary(date: str):
-    """返回某天的日记详情"""
+    """返回某天的日记详情（优先读日记文件，文件不存在时回退数据库内容）"""
     session = get_session()
     try:
         rec = session.query(Diary).filter(Diary.date == date).first()
         if not rec:
             raise HTTPException(404, "该日期暂无日记")
+        content = rec.content
+        fpath = settings.diaries_dir / f"{date}.md"
+        if fpath.exists():
+            try:
+                content = fpath.read_text(encoding="utf-8")
+            except Exception:
+                pass
         return {
             "date": rec.date,
-            "content": rec.content,
+            "content": content,
             "created_at": rec.created_at.isoformat() if rec.created_at else None,
         }
     finally:
