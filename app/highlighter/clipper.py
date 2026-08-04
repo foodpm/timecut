@@ -7,7 +7,7 @@ from pathlib import Path
 from datetime import datetime
 
 from config import settings
-from .detector import MotionSegment
+from .detector import MotionDetector, MotionSegment
 
 logger = logging.getLogger("timecut.clipper")
 
@@ -17,6 +17,9 @@ class HighlightClipper:
 
     def __init__(self):
         self.target_duration = settings.highlight_duration_minutes * 60
+        # 单个运动片段在精华视频中最多占用的秒数：超长片段只取其中运动最密集的一段，
+        # 让 5 分钟精华能覆盖更多不同的事件
+        self.max_segment_seconds = max(1, settings.highlight_max_segment_seconds)
 
     def create_highlight(
         self,
@@ -58,22 +61,53 @@ class HighlightClipper:
             seg, src = item
             return offset_map.get(src, 0.0) + seg.start
 
-        # 按运动分数从高到低挑选，凑满目标时长
+        # 按运动分数从高到低挑选，每个片段最多截取 max_segment_seconds 秒，
+        # 凑满目标时长，让精华视频尽量覆盖更多不同的事件
+        detector = MotionDetector()
+        scene_cache: dict[Path, list[float]] = {}
+
+        def scene_ts(src: Path) -> list[float]:
+            """该源文件内的 scene 变化时间戳（长片段截取用，每个文件只检测一次）"""
+            if src not in scene_cache:
+                scene_cache[src] = detector._detect_scenes(src)
+            return scene_cache[src]
+
         sorted_segs = sorted(segments, key=lambda s: s[0].score, reverse=True)
         selected = []
         sel_total = 0.0
         for seg, src in sorted_segs:
-            if sel_total + seg.duration > self.target_duration:
-                remaining = self.target_duration - sel_total
-                if remaining >= 10:
-                    selected.append((MotionSegment(seg.start, seg.start + remaining, seg.score), src))
-                    sel_total = self.target_duration
+            if sel_total >= self.target_duration:
                 break
-            selected.append((seg, src))
-            sel_total += seg.duration
+            piece = self._cap_segment(seg, scene_ts(src))
+            remaining = self.target_duration - sel_total
+            if piece.duration > remaining:
+                if remaining < 10:
+                    break
+                piece = MotionSegment(piece.start, piece.start + remaining, piece.score)
+            selected.append((piece, src))
+            sel_total += piece.duration
         # 按当天真实发生时间排序，保证精华视频按时间顺序播放
         selected.sort(key=global_start)
         return selected
+
+    def _cap_segment(self, seg: MotionSegment, scene_ts: list[float]) -> MotionSegment:
+        """把片段截断到最多 max_segment_seconds 秒，优先取运动（scene 变化）最密集的窗口；
+        片段内检测不到 scene 变化时，取片段中部窗口兜底"""
+        max_sec = self.max_segment_seconds
+        if seg.duration <= max_sec:
+            return seg
+        in_seg = [t for t in scene_ts if seg.start <= t <= seg.end]
+        if not in_seg:
+            mid = seg.start + seg.duration / 2
+            s = min(max(mid - max_sec / 2, seg.start), seg.end - max_sec)
+            return MotionSegment(s, s + max_sec, seg.score)
+        best_s, best_cnt = in_seg[0], -1
+        for t in in_seg:
+            s = min(max(t - max_sec / 2, seg.start), seg.end - max_sec)
+            cnt = sum(1 for x in in_seg if s <= x <= s + max_sec)
+            if cnt > best_cnt:
+                best_cnt, best_s = cnt, s
+        return MotionSegment(best_s, best_s + max_sec, seg.score)
 
     @staticmethod
     def _get_duration(video_path: Path) -> float:

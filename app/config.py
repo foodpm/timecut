@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     recording_start_time: str = "00:00"
     recording_end_time: str = "23:59"
     highlight_duration_minutes: int = 5
+    highlight_max_segment_seconds: int = 20
     highlight_schedule_time: str = "03:00"
     highlight_enabled: bool = True
     detection_sensitivity: int = 30

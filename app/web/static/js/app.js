@@ -723,6 +723,7 @@ window.deleteHighlight = async function(id) {
          <div class="space-y-4">
            <div class="flex items-center gap-3"><label class="text-xs text-timecut-500">自动剪辑</label><button id="s-highlight-toggle" onclick="toggleHighlight()" class="btn relative w-12 h-6 rounded-full transition-colors ${s.highlight_enabled ? 'bg-accent-600' : 'bg-timecut-600'}"><span class="absolute left-0 top-0.5 w-5 h-5 bg-white rounded-full transition-transform ${s.highlight_enabled ? 'translate-x-[26px]' : 'translate-x-0.5'}"></span></button></div>
            <div><label class="block text-xs text-timecut-500 mb-1.5">精华视频时长（分钟）</label><input id="s-hl-duration" type="number" min="1" max="30" class="w-32 bg-timecut-900 border border-timecut-700 rounded-lg px-3 py-2 text-sm text-timecut-200 focus:outline-none focus:border-accent-500" value="${s.highlight_duration_minutes}"></div>
+          <div><label class="block text-xs text-timecut-500 mb-1.5">单段最多时长（秒，超长片段自动截取运动最密集段）</label><input id="s-hl-seg" type="number" min="5" max="120" class="w-32 bg-timecut-900 border border-timecut-700 rounded-lg px-3 py-2 text-sm text-timecut-200 focus:outline-none focus:border-accent-500" value="${s.highlight_max_segment_seconds ?? 20}"></div>
            <div><label class="block text-xs text-timecut-500 mb-1.5">每日检测时间</label><input id="s-hl-time" type="time" class="w-36 bg-timecut-900 border border-timecut-700 rounded-lg px-3 py-2 text-sm text-timecut-200 focus:outline-none focus:border-accent-500" value="${s.highlight_schedule_time}"></div>
            <div><label class="block text-xs text-timecut-500 mb-1.5">运动检测灵敏度（1-100，越高越灵敏）</label>
              <div class="flex items-center gap-3">
@@ -899,6 +900,7 @@ window.saveSettings = async function() {
      recording_end_time: document.getElementById('s-end-time')?.value || '23:59',
      highlight_enabled: document.getElementById('s-highlight-toggle')?.classList.contains('bg-accent-600'),
      highlight_duration_minutes: parseInt(document.getElementById('s-hl-duration')?.value),
+     highlight_max_segment_seconds: parseInt(document.getElementById('s-hl-seg')?.value) || 20,
      highlight_schedule_time: document.getElementById('s-hl-time')?.value,
      detection_sensitivity: parseInt(document.getElementById('s-sensitivity')?.value),
      ai_enabled: document.getElementById('s-ai-on')?.checked,

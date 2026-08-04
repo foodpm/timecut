@@ -48,6 +48,7 @@ class SettingsUpdate(BaseModel):
     recording_start_time: str | None = None
     recording_end_time: str | None = None
     highlight_duration_minutes: int | None = None
+    highlight_max_segment_seconds: int | None = None
     highlight_enabled: bool | None = None
     highlight_schedule_time: str | None = None
     detection_sensitivity: int | None = None
@@ -80,6 +81,7 @@ def get_settings():
         "recording_start_time": settings.recording_start_time,
         "recording_end_time": settings.recording_end_time,
         "highlight_duration_minutes": settings.highlight_duration_minutes,
+        "highlight_max_segment_seconds": settings.highlight_max_segment_seconds,
         "highlight_enabled": settings.highlight_enabled,
         "highlight_schedule_time": settings.highlight_schedule_time,
         "detection_sensitivity": settings.detection_sensitivity,
@@ -266,7 +268,10 @@ def update_settings(data: SettingsUpdate):
         changes["recording_end_time"] = data.recording_end_time
     if data.highlight_duration_minutes is not None:
         settings.highlight_duration_minutes = data.highlight_duration_minutes
-        changes["highlight_duration_minutes"] = data.highlight_duration_minutes
+        changes["highlight_duration_minutes"] = settings.highlight_duration_minutes
+    if data.highlight_max_segment_seconds is not None:
+        settings.highlight_max_segment_seconds = max(1, data.highlight_max_segment_seconds)
+        changes["highlight_max_segment_seconds"] = settings.highlight_max_segment_seconds
     if data.highlight_enabled is not None:
         settings.highlight_enabled = data.highlight_enabled
         changes["highlight_enabled"] = data.highlight_enabled

@@ -109,12 +109,14 @@ class DiaryGenerator:
     # ── 大模型调用 ──
     def _describe_frame(self, frame: bytes, event_dt: datetime) -> str:
         prompt = (
-            "你是家庭监控录像日志助手。这是某天某个时刻的监控画面。"
+            "你是家庭生活记录助手，帮主人写家庭日记。这是某天某个时刻家里或门口的画面。"
             f"当前时刻：{event_dt.strftime('%Y-%m-%d %H:%M')}。"
-            "请仔细观察画面：如果画面里有人，用 1-2 句话描述画面里的人正在做什么——"
-            "有几个人、正在做什么动作、进出方向、手里有没有拿东西、有没有停顿或停留等行为细节；"
-            "如果画面里没有人，也没有值得记录的事（空镜头、光线变化、树叶晃动等），"
-            "只回答「无」。不要输出其他内容。"
+            "请用主人第一人称的日记口吻，用 1-2 句话记录这个时刻发生的事，"
+            "要像写日记一样自然、生活化，例如「下午两点半，家里来了两个人，正往屋里搬大箱子，像是在搬家」"
+            "或「傍晚有人到家门口取走一个包裹」。"
+            "不要使用「监控」「画面」「记录」等词，不要罗列人数与动作清单，不要总结评论。"
+            "如果画面里没有人，也没有值得记录的事（空镜头、光线变化、树叶晃动等），只回答「无」。"
+            "不要输出其他内容。"
         )
         payload = {
             "model": self.model,
@@ -137,13 +139,42 @@ class DiaryGenerator:
         return text[:150]
 
     def _compose_diary(self, date: str, events: list) -> str:
-        """组装行为描述式日志：按时间线列出画面里的人在做什么（无需二次模型调用）"""
+        """把当天事件交给大模型写成一篇连贯的第一人称日记；调用失败时回退为按时间列出"""
+        composed = self._compose_with_llm(date, events)
+        if composed:
+            return composed
+        logger.warning("日记整篇成稿失败，回退为按时间逐条列出")
         lines = [f"# {date} 见闻记录", ""]
         for dt, desc in events:
             lines.append(f"## {dt.strftime('%H:%M')}")
             lines.append(desc)
             lines.append("")
         return "\n".join(lines).strip()
+
+    def _compose_with_llm(self, date: str, events: list) -> str | None:
+        """调用大模型把多个事件句编织成一篇自然连贯的日记，失败返回 None"""
+        event_lines = "\n".join(
+            f"- {dt.strftime('%H:%M')}：{desc}" for dt, desc in events
+        )
+        prompt = (
+            "下面是一个家庭摄像头记录到的某天（%s）的几个事件，每个事件带发生时间。\n"
+            "%s\n\n"
+            "请以主人第一人称的口吻，写一篇自然、温暖、像人写的日记，要求：\n"
+            "1. 不要提到「监控」「摄像头」「画面」「片段」等词；\n"
+            "2. 按时间顺序组织，可用「上午/中午/下午/傍晚/晚上」作时间引导，事件之间用过渡句自然衔接；\n"
+            "3. 可以加入一两句生活化的感受或猜测（如「家里真热闹」「应该是邻居搬过来了」），不要写成清单或流水账；\n"
+            "4. 开头简单交代当天，结尾自然收束，全文 200-400 字；\n"
+            "5. 直接输出日记正文，不要输出任何额外说明。"
+        ) % (date, event_lines)
+        payload = {
+            "model": self.model,
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": 800,
+        }
+        text = self._chat(payload)
+        if not text or not text.strip():
+            return None
+        return text.strip()[:2000]
 
     def _chat(self, payload: dict) -> str | None:
         req = urllib.request.Request(
