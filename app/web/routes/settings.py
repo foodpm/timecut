@@ -49,6 +49,7 @@ class SettingsUpdate(BaseModel):
     recording_end_time: str | None = None
     highlight_duration_minutes: int | None = None
     highlight_max_segment_seconds: int | None = None
+    highlight_max_segments_per_hour: int | None = None
     highlight_enabled: bool | None = None
     highlight_schedule_time: str | None = None
     detection_sensitivity: int | None = None
@@ -61,6 +62,9 @@ class SettingsUpdate(BaseModel):
     # ── 日记 ──
     diary_enabled: bool | None = None
     diary_max_segments: int | None = None
+    # ── YOLO 人物过滤 ──
+    yolo_enabled: bool | None = None
+    yolo_confidence: float | None = None
 
 
 class AITestRequest(BaseModel):
@@ -82,6 +86,7 @@ def get_settings():
         "recording_end_time": settings.recording_end_time,
         "highlight_duration_minutes": settings.highlight_duration_minutes,
         "highlight_max_segment_seconds": settings.highlight_max_segment_seconds,
+        "highlight_max_segments_per_hour": settings.highlight_max_segments_per_hour,
         "highlight_enabled": settings.highlight_enabled,
         "highlight_schedule_time": settings.highlight_schedule_time,
         "detection_sensitivity": settings.detection_sensitivity,
@@ -92,6 +97,8 @@ def get_settings():
         "ai_max_segments": settings.ai_max_segments,
         "diary_enabled": settings.diary_enabled,
         "diary_max_segments": settings.diary_max_segments,
+        "yolo_enabled": settings.yolo_enabled,
+        "yolo_confidence": settings.yolo_confidence,
     }
 
 
@@ -272,6 +279,9 @@ def update_settings(data: SettingsUpdate):
     if data.highlight_max_segment_seconds is not None:
         settings.highlight_max_segment_seconds = max(1, data.highlight_max_segment_seconds)
         changes["highlight_max_segment_seconds"] = settings.highlight_max_segment_seconds
+    if data.highlight_max_segments_per_hour is not None:
+        settings.highlight_max_segments_per_hour = max(1, data.highlight_max_segments_per_hour)
+        changes["highlight_max_segments_per_hour"] = settings.highlight_max_segments_per_hour
     if data.highlight_enabled is not None:
         settings.highlight_enabled = data.highlight_enabled
         changes["highlight_enabled"] = data.highlight_enabled
@@ -302,6 +312,12 @@ def update_settings(data: SettingsUpdate):
     if data.diary_max_segments is not None:
         settings.diary_max_segments = max(1, data.diary_max_segments)
         changes["diary_max_segments"] = settings.diary_max_segments
+    if data.yolo_enabled is not None:
+        settings.yolo_enabled = data.yolo_enabled
+        changes["yolo_enabled"] = settings.yolo_enabled
+    if data.yolo_confidence is not None:
+        settings.yolo_confidence = max(0.05, min(0.95, data.yolo_confidence))
+        changes["yolo_confidence"] = settings.yolo_confidence
     _persist_settings(changes)
     return {"status": "ok"}
 

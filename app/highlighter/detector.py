@@ -12,10 +12,13 @@ logger = logging.getLogger("timecut.detector")
 class MotionSegment:
     """一个运动密集片段"""
 
-    def __init__(self, start: float, end: float, score: float):
+    def __init__(self, start: float, end: float, score: float,
+                 person_ts: list | None = None):
         self.start = start
         self.end = end
         self.score = score
+        # YOLO 检测到人的时间戳（绝对秒，可选；用于长片段取"人物最密集"窗口）
+        self.person_ts = person_ts
 
     @property
     def duration(self) -> float:

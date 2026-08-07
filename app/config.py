@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     recording_end_time: str = "23:59"
     highlight_duration_minutes: int = 5
     highlight_max_segment_seconds: int = 20
+    highlight_max_segments_per_hour: int = 2
     highlight_schedule_time: str = "03:00"
     highlight_enabled: bool = True
     detection_sensitivity: int = 30
@@ -36,6 +37,10 @@ class Settings(BaseSettings):
     # ── 大模型日记 ──
     diary_enabled: bool = False
     diary_max_segments: int = 50
+    # ── YOLO 人物过滤（精华视频只保留有人片段，无人在内时自动回退运动模式）──
+    yolo_enabled: bool = True
+    yolo_model_path: str = "/app/models/yolo11n.onnx"
+    yolo_confidence: float = 0.4
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 

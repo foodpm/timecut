@@ -100,6 +100,9 @@ class HighlightScheduler:
                 return
             logger.info(f"共检测到 {len(all_segments)} 个运动片段")
             job.log_line(f"共检测到 {len(all_segments)} 个运动片段")
+            # YOLO 人物过滤：只保留检测到人的片段，并记录人物时间点供取窗
+            if settings.yolo_enabled:
+                all_segments = self._person_filter(all_segments)
             ai_success = False
             if settings.ai_enabled:
                 logger.info("启用大模型识别精华片段")
@@ -142,6 +145,32 @@ class HighlightScheduler:
             logger.exception("精华生成异常")
             job.finish(False, f"生成异常: {e}")
         logger.info("===== 每日精华检测完成 =====")
+
+    def _person_filter(self, segments: list) -> list:
+        """YOLO 人物过滤：每个片段采样若干帧判断是否有人，只保留有人片段。
+
+        为长片段采样更多帧，把"有人"的时间戳挂到 MotionSegment.person_ts，
+        供剪辑器选取人物最密集的 20 秒窗口。当天无人物时回退纯运动模式。
+        """
+        from .person_detector import PersonDetector
+        detector = PersonDetector()
+        if not detector.available:
+            return segments
+        job.log_line("YOLO 人物检测...")
+        kept, dropped = [], 0
+        for seg, src in segments:
+            frames = max(3, min(int(seg.duration / 3), 20))
+            seg.person_ts = detector.person_timestamps(src, seg.start, seg.end, frames)
+            if seg.person_ts:
+                kept.append((seg, src))
+            else:
+                dropped += 1
+        job.log_line(f"YOLO 人物检测完成：{len(segments)} 个片段，{dropped} 个无人物被过滤")
+        if not kept:
+            logger.warning("当天未检测到人物，回退为纯运动模式生成")
+            job.log_line("当天未检测到人物，回退为纯运动模式生成")
+            return segments
+        return kept
 
     def stop(self):
         self._scheduler.shutdown(wait=False)

@@ -20,6 +20,8 @@ class HighlightClipper:
         # 单个运动片段在精华视频中最多占用的秒数：超长片段只取其中运动最密集的一段，
         # 让 5 分钟精华能覆盖更多不同的事件
         self.max_segment_seconds = max(1, settings.highlight_max_segment_seconds)
+        # 同一小时内最多保留的片段数，避免精华连续堆叠同一时段的画面
+        self.max_per_hour = max(1, settings.highlight_max_segments_per_hour)
 
     def create_highlight(
         self,
@@ -62,7 +64,7 @@ class HighlightClipper:
             return offset_map.get(src, 0.0) + seg.start
 
         # 按运动分数从高到低挑选，每个片段最多截取 max_segment_seconds 秒，
-        # 凑满目标时长，让精华视频尽量覆盖更多不同的事件
+        # 同一小时内最多 max_per_hour 段，凑满目标时长，让精华视频覆盖全天更多事件
         detector = MotionDetector()
         scene_cache: dict[Path, list[float]] = {}
 
@@ -75,9 +77,13 @@ class HighlightClipper:
         sorted_segs = sorted(segments, key=lambda s: s[0].score, reverse=True)
         selected = []
         sel_total = 0.0
+        hour_count: dict[int, int] = {}
         for seg, src in sorted_segs:
             if sel_total >= self.target_duration:
                 break
+            hour = int(global_start((seg, src)) // 3600)
+            if hour_count.get(hour, 0) >= self.max_per_hour:
+                continue  # 该小时已选满，跳过分数较低的片段
             piece = self._cap_segment(seg, scene_ts(src))
             remaining = self.target_duration - sel_total
             if piece.duration > remaining:
@@ -86,25 +92,40 @@ class HighlightClipper:
                 piece = MotionSegment(piece.start, piece.start + remaining, piece.score)
             selected.append((piece, src))
             sel_total += piece.duration
+            hour_count[hour] = hour_count.get(hour, 0) + 1
         # 按当天真实发生时间排序，保证精华视频按时间顺序播放
         selected.sort(key=global_start)
         return selected
 
     def _cap_segment(self, seg: MotionSegment, scene_ts: list[float]) -> MotionSegment:
-        """把片段截断到最多 max_segment_seconds 秒，优先取运动（scene 变化）最密集的窗口；
-        片段内检测不到 scene 变化时，取片段中部窗口兜底"""
+        """把片段截断到最多 max_segment_seconds 秒。
+
+        窗口优先级：人物最密集 > 运动（scene 变化）最密集 > 片段中部兜底。
+        """
         max_sec = self.max_segment_seconds
         if seg.duration <= max_sec:
             return seg
-        in_seg = [t for t in scene_ts if seg.start <= t <= seg.end]
-        if not in_seg:
-            mid = seg.start + seg.duration / 2
-            s = min(max(mid - max_sec / 2, seg.start), seg.end - max_sec)
-            return MotionSegment(s, s + max_sec, seg.score)
-        best_s, best_cnt = in_seg[0], -1
-        for t in in_seg:
+        person_ts = getattr(seg, "person_ts", None)
+        if person_ts:
+            in_seg = [t for t in person_ts if seg.start <= t <= seg.end]
+            if in_seg:
+                return self._densest_window(seg, in_seg, max_sec)
+        if scene_ts:
+            in_seg = [t for t in scene_ts if seg.start <= t <= seg.end]
+            if in_seg:
+                return self._densest_window(seg, in_seg, max_sec)
+        mid = seg.start + seg.duration / 2
+        s = min(max(mid - max_sec / 2, seg.start), seg.end - max_sec)
+        return MotionSegment(s, s + max_sec, seg.score)
+
+    @staticmethod
+    def _densest_window(seg: MotionSegment, ts_list: list[float],
+                        max_sec: float) -> MotionSegment:
+        """在 ts_list 中滑动 max_sec 窗口，取覆盖时间点最多的窗口"""
+        best_s, best_cnt = ts_list[0], -1
+        for t in ts_list:
             s = min(max(t - max_sec / 2, seg.start), seg.end - max_sec)
-            cnt = sum(1 for x in in_seg if s <= x <= s + max_sec)
+            cnt = sum(1 for x in ts_list if s <= x <= s + max_sec)
             if cnt > best_cnt:
                 best_cnt, best_s = cnt, s
         return MotionSegment(best_s, best_s + max_sec, seg.score)
