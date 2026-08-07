@@ -43,7 +43,8 @@ class PersonDetector:
         try:
             self._net = cv2.dnn.readNetFromONNX(str(model_path))
             self._net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
-            self._net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
+            # CPU 是 OPENCV 后端默认目标；不显式 setPreferableTarget，
+            # 兼容 OpenCV 5.0 新图引擎（该接口在新引擎下不受支持）
             self.available = True
             logger.info(f"YOLO 人物检测已启用: {model_path}")
         except Exception as e:

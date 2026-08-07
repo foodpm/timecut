@@ -10,5 +10,6 @@
  aiofiles==24.1.0
  pyyaml==6.0.2
 # ── YOLO 人物检测（OpenCV DNN 运行 yolov8n/yolo11n ONNX）──
-numpy==1.26.4
-opencv-python-headless==4.10.0.84
+# 注意：OpenCV 4.10 无法加载 YOLO11 ONNX（Concat 形状推断失败），需 >= 5.0
+numpy==2.5.1
+opencv-python-headless==5.0.0.93
