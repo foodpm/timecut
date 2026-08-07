@@ -16,9 +16,11 @@
 - **📺 实时画面**：通过 go2rtc 接入摄像头 RTSP/小米流，浏览器低延迟实时查看（MSE/WebRTC）
 - **📹 循环录像**：FFmpeg 分段录制，按天保留策略自动清理过期录像
 - **🤖 大模型精华筛选**：每日自动分析录像，支持「系统自动（运动检测）」与「大模型识别」两种模式——大模型模式对运动片段抽帧，调用多模态大模型判断画面是否含人员、车辆、包裹等有价值事件，识别更智能
-- **✂️ 自动剪辑**：将活跃片段智能拼接为精华视频，永久保存；支持一键手动生成
-- **� 大模型日记**：每日自动分析录像运动片段，调用多模态大模型总结当天发生的事并生成一篇日记；可开关、按日期网格浏览、点击查看详情
-- **� 画面缩略图**：录像回看与精华视频列表均展示画面缩略图，精华视频支持在线播放
+- **👤 YOLO 人物过滤**：内置 YOLO11n 模型检测画面中的人，精华视频只保留有人片段，长片段自动截取"人物最密集"的 20 秒；当天无人时自动回退运动模式
+- **⏱ 时段去重**：同一小时内精华最多保留 2 段（可配置），让 5 分钟精华分散覆盖全天，而不是堆叠同一时段的画面
+- **✂️ 自动剪辑**：将活跃片段智能拼接为精华视频（单段最长 20 秒），永久保存；支持一键手动生成
+- **📝 大模型日记**：每日自动分析录像运动片段，调用多模态大模型总结当天发生的事并生成一篇自然的第一人称日记；可开关、按日期网格浏览、点击查看详情
+- **🖼️ 画面缩略图**：录像回看与精华视频列表均展示画面缩略图，精华视频支持在线播放
 - **🌐 Web 管理**：浏览器访问面板，配置摄像头、录像策略、精华参数；面板修改自动持久化，重启/升级不丢失
 - **🔄 自动恢复**：录制进程异常退出后自动重启，保证录像连续性
 - **🐳 Docker 部署**：Docker Compose 一键启动，适配群晖/威联通等主流 NAS
@@ -110,7 +112,7 @@ docker load -i timecut-amd64.tar   # 按实际下载的文件名调整
 按上文「步骤一」准备 `docker-compose.yml`、`go2rtc.yaml`、`.env` 后，把 `docker-compose.yml` 里的镜像改为与下载版本一致（**不带 `v` 前缀**）：
 
 ```yaml
-image: ghcr.io/foodpm/timecut:0.3.1   # 替换为下载时对应的版本号，如 0.3.1
+image: ghcr.io/foodpm/timecut:0.7.0   # 替换为下载时对应的版本号，如 0.7.0
 ```
 
 **4. 启动**
@@ -149,15 +151,21 @@ cd app && python main.py
 | `RECORDING_START_TIME` | 00:00 | 每天开始录制时间（24 小时制，支持跨午夜） |
 | `RECORDING_END_TIME` | 23:59 | 每天结束录制时间（24 小时制） |
 | `HIGHLIGHT_DURATION_MINUTES` | 5 | 精华视频时长（分钟） |
+| `HIGHLIGHT_MAX_SEGMENT_SECONDS` | 20 | 单个运动片段在精华中最多占用的秒数（超长片段自动截取最密集段） |
+| `HIGHLIGHT_MAX_SEGMENTS_PER_HOUR` | 2 | 同一小时内精华最多保留的片段数 |
 | `HIGHLIGHT_SCHEDULE_TIME` | 03:00 | 每日精华检测时间（24 小时制） |
 | `HIGHLIGHT_ENABLED` | true | 是否启用精华检测 |
 | `DETECTION_SENSITIVITY` | 30 | 运动检测灵敏度（1-100，越小越灵敏） |
+| `YOLO_ENABLED` | true | 是否启用 YOLO 人物过滤（只保留有人画面；当天无人时自动回退运动模式） |
+| `YOLO_MODEL_PATH` | /app/models/yolo11n.onnx | YOLO 模型路径（随镜像内置，一般无需修改） |
+| `YOLO_CONFIDENCE` | 0.4 | 人物检测置信度阈值（0.05-0.95） |
 | `AI_ENABLED` | false | 是否启用大模型精华识别（需在面板填 API Key） |
 | `AI_BASE_URL` | https://dashscope.aliyuncs.com/compatible-mode/v1 | 大模型 API 地址（OpenAI 兼容） |
 | `AI_MODEL` | qwen-vl-plus | 多模态模型 ID（需支持图片输入） |
 | `AI_API_KEY` | - | 大模型 API Key |
 | `AI_MAX_SEGMENTS` | 20 | 每天最多用大模型分析的片段数（即 API 调用次数上限） |
 | `DIARY_ENABLED` | false | 是否启用大模型日记（需在面板填大模型 API Key，与精华识别共用） |
+| `DIARY_MAX_SEGMENTS` | 50 | 每天最多用大模型分析的日记片段数 |
 | `WEB_PORT` | 8090 | Web 管理端口 |
 | `DATA_DIR` | /data | 数据存储目录（Docker 内勿改） |
 | `TZ` | Asia/Shanghai | 时区 |
