@@ -72,6 +72,20 @@ async def lifespan(app: FastAPI):
         logger.warning("未配置摄像头 RTSP 地址，请在 Web UI 中设置")
         scan_task = None
 
+    # 录像保留天数清理：启动时执行一次 + 每 4 小时执行一次
+    # （clean() 内部有 DB 与文件删除操作，放线程池执行避免阻塞事件循环）
+    async def periodic_cleanup():
+        while True:
+            try:
+                deleted = await asyncio.to_thread(cleaner.clean)
+                if deleted:
+                    logger.info(f"录像清理完成，本次删除 {deleted} 个过期文件")
+            except Exception as e:
+                logger.error(f"录像清理失败: {e}")
+            await asyncio.sleep(4 * 3600)
+
+    cleanup_task = asyncio.create_task(periodic_cleanup())
+
     scheduler.start()
 
     yield
@@ -79,6 +93,7 @@ async def lifespan(app: FastAPI):
     scheduler.stop()
     if scan_task:
         scan_task.cancel()
+    cleanup_task.cancel()
     recorder.stop_scheduler()
     await recorder.stop()
     logger.info("TimeCut 已关闭")
@@ -107,7 +122,7 @@ def _init_default_camera():
 app = FastAPI(
     title="TimeCut",
     description="NAS 监控摄像头录像与精华视频管理系统",
-    version="0.7.1",
+    version="0.7.2",
     lifespan=lifespan,
 )
 
@@ -181,7 +196,7 @@ def health():
     return {
         "status": "ok",
         "recording": recorder.is_recording,
-        "version": "0.7.1",
+        "version": "0.7.2",
     }
 
 
