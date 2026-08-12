@@ -78,6 +78,8 @@ class HighlightClipper:
         selected = []
         sel_total = 0.0
         hour_count: dict[int, int] = {}
+
+        # 第一轮：按分数从高到低选段，同一小时内最多 max_per_hour 段（分散覆盖全天）
         for seg, src in sorted_segs:
             if sel_total >= self.target_duration:
                 break
@@ -93,6 +95,26 @@ class HighlightClipper:
             selected.append((piece, src))
             sel_total += piece.duration
             hour_count[hour] = hour_count.get(hour, 0) + 1
+
+        # 第二轮（回填补齐）：分散后仍凑不满目标时长时，忽略小时限制，
+        # 按分数顺序补选剩余片段，直到装满目标时长（避免精华视频偏短）
+        if sel_total < self.target_duration:
+            used = {id(seg) for seg, _ in selected}
+            for seg, src in sorted_segs:
+                if sel_total >= self.target_duration:
+                    break
+                if id(seg) in used:
+                    continue
+                piece = self._cap_segment(seg, scene_ts(src))
+                remaining = self.target_duration - sel_total
+                if piece.duration > remaining:
+                    if remaining < 10:
+                        break
+                    piece = MotionSegment(piece.start, piece.start + remaining, piece.score)
+                selected.append((piece, src))
+                sel_total += piece.duration
+                used.add(id(seg))
+
         # 按当天真实发生时间排序，保证精华视频按时间顺序播放
         selected.sort(key=global_start)
         return selected
