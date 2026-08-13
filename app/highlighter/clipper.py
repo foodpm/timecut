@@ -77,43 +77,42 @@ class HighlightClipper:
         sorted_segs = sorted(segments, key=lambda s: s[0].score, reverse=True)
         selected = []
         sel_total = 0.0
-        hour_count: dict[int, int] = {}
 
-        # 第一轮：按分数从高到低选段，同一小时内最多 max_per_hour 段（分散覆盖全天）
+        # 按小时分组（组内已是分数从高到低）
+        hour_segs: dict[int, list[tuple[MotionSegment, Path]]] = {}
         for seg, src in sorted_segs:
-            if sel_total >= self.target_duration:
-                break
             hour = int(global_start((seg, src)) // 3600)
-            if hour_count.get(hour, 0) >= self.max_per_hour:
-                continue  # 该小时已选满，跳过分数较低的片段
+            hour_segs.setdefault(hour, []).append((seg, src))
+
+        def take(item):
+            """取一段（≤ max_segment_seconds 秒），放不下时按剩余容量截断；已满则跳过"""
+            nonlocal sel_total
+            if sel_total >= self.target_duration:
+                return
+            seg, src = item
             piece = self._cap_segment(seg, scene_ts(src))
             remaining = self.target_duration - sel_total
             if piece.duration > remaining:
                 if remaining < 10:
-                    break
+                    return
                 piece = MotionSegment(piece.start, piece.start + remaining, piece.score)
             selected.append((piece, src))
             sel_total += piece.duration
-            hour_count[hour] = hour_count.get(hour, 0) + 1
 
-        # 第二轮（回填补齐）：分散后仍凑不满目标时长时，忽略小时限制，
-        # 按分数顺序补选剩余片段，直到装满目标时长（避免精华视频偏短）
-        if sel_total < self.target_duration:
-            used = {id(seg) for seg, _ in selected}
-            for seg, src in sorted_segs:
-                if sel_total >= self.target_duration:
-                    break
-                if id(seg) in used:
-                    continue
-                piece = self._cap_segment(seg, scene_ts(src))
-                remaining = self.target_duration - sel_total
-                if piece.duration > remaining:
-                    if remaining < 10:
-                        break
-                    piece = MotionSegment(piece.start, piece.start + remaining, piece.score)
-                selected.append((piece, src))
-                sel_total += piece.duration
-                used.add(id(seg))
+        # ① 每时段保底：每个有人的小时先取分数最高的一段，保证全天都有内容
+        for segs in hour_segs.values():
+            take(segs[0])
+        # ② 每时段加一：每小时内最多补到 max_per_hour 段（保持分散）
+        for k in range(1, self.max_per_hour):
+            for segs in hour_segs.values():
+                if len(segs) > k:
+                    take(segs[k])
+        # ③ 分数补齐：仍凑不满目标时长时，按全局分数高低任意补选，直到装满
+        used = {id(seg) for seg, _ in selected}
+        for seg, src in sorted_segs:
+            if id(seg) in used:
+                continue
+            take((seg, src))
 
         # 按当天真实发生时间排序，保证精华视频按时间顺序播放
         selected.sort(key=global_start)
