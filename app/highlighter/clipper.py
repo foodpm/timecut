@@ -77,6 +77,9 @@ class HighlightClipper:
         sorted_segs = sorted(segments, key=lambda s: s[0].score, reverse=True)
         selected = []
         sel_total = 0.0
+        # 同事件去重间隔：连续事件会被切到多个相邻片段（跨 20 分钟录像文件），
+        # 补选时与已选片段间隔不足该值的视为同一事件，跳过避免重复
+        min_event_gap = 30 * 60
 
         # 按小时分组（组内已是分数从高到低）
         hour_segs: dict[int, list[tuple[MotionSegment, Path]]] = {}
@@ -84,12 +87,21 @@ class HighlightClipper:
             hour = int(global_start((seg, src)) // 3600)
             hour_segs.setdefault(hour, []).append((seg, src))
 
-        def take(item):
-            """取一段（≤ max_segment_seconds 秒），放不下时按剩余容量截断；已满则跳过"""
+        taken_ids: set[int] = set()
+
+        def take(item, min_gap: float = 0):
+            """取一段（≤ max_segment_seconds 秒）；min_gap>0 时与已选片段时间过近则跳过"""
             nonlocal sel_total
             if sel_total >= self.target_duration:
                 return
             seg, src = item
+            if id(seg) in taken_ids:
+                return
+            t = global_start((seg, src))
+            if min_gap > 0 and selected:
+                for p, psrc in selected:
+                    if abs(global_start((p, psrc)) - t) < min_gap:
+                        return
             piece = self._cap_segment(seg, scene_ts(src))
             remaining = self.target_duration - sel_total
             if piece.duration > remaining:
@@ -97,22 +109,26 @@ class HighlightClipper:
                     return
                 piece = MotionSegment(piece.start, piece.start + remaining, piece.score)
             selected.append((piece, src))
+            taken_ids.add(id(seg))
             sel_total += piece.duration
 
-        # ① 每时段保底：每个有人的小时先取分数最高的一段，保证全天都有内容
-        for segs in hour_segs.values():
-            take(segs[0])
-        # ② 每时段加一：每小时内最多补到 max_per_hour 段（保持分散）
+        def fill_by_score(min_gap: float):
+            for seg, src in sorted_segs:
+                take((seg, src), min_gap=min_gap)
+
+        hours = sorted(hour_segs)
+        # ① 每时段保底：按时间顺序，每个有人的小时先取分数最高的一段，保证全天（含晚上）都有内容
+        for h in hours:
+            take(hour_segs[h][0])
+        # ② 每时段加一：按时间顺序，每小时内最多补到 max_per_hour 段；与已选时间过近的跳过
         for k in range(1, self.max_per_hour):
-            for segs in hour_segs.values():
-                if len(segs) > k:
-                    take(segs[k])
-        # ③ 分数补齐：仍凑不满目标时长时，按全局分数高低任意补选，直到装满
-        used = {id(seg) for seg, _ in selected}
-        for seg, src in sorted_segs:
-            if id(seg) in used:
-                continue
-            take((seg, src))
+            for h in hours:
+                if len(hour_segs[h]) > k:
+                    take(hour_segs[h][k], min_gap=min_event_gap)
+        # ③ 分数补齐：严格去重下按分数高低补选
+        fill_by_score(min_event_gap)
+        # ④ 兜底填满：仍不足目标时长时放开去重按分数补足，保证精华达到目标时长
+        fill_by_score(0)
 
         # 按当天真实发生时间排序，保证精华视频按时间顺序播放
         selected.sort(key=global_start)
