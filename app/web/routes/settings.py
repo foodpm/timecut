@@ -2,11 +2,13 @@
 
 import json
 import logging
+import urllib.error
 import urllib.request
 from pathlib import Path
-from urllib.parse import quote, urlparse
+from urllib.parse import quote, urlencode, urlparse
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 
 from config import settings
@@ -131,6 +133,67 @@ def get_go2rtc_streams():
         })
     streams.sort(key=lambda s: s["name"])
     return {"streams": streams}
+
+
+# ── go2rtc API 同源代理 ──
+# 前端不再直连 :1984（HTTPS 混合内容 / 端口不可达 / CORS 都会导致浏览器
+# fetch 抛 "Failed to fetch"），统一走后端转发，Web UI 与后端同源
+def _go2rtc_proxy(method: str, path: str, params: dict | None = None,
+                  body: bytes | None = None, content_type: str | None = None,
+                  timeout: float = 90) -> Response:
+    """转发请求到 go2rtc API 并原样返回（含状态码，便于前端处理 401 验证码/二次验证）"""
+    url = f"{settings.go2rtc_url}{path}"
+    if params:
+        url += "?" + urlencode(params)
+    headers = {}
+    if content_type:
+        headers["Content-Type"] = content_type
+    req = urllib.request.Request(url, data=body, method=method, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return Response(content=resp.read(), status_code=resp.status,
+                            media_type=resp.headers.get_content_type() or "application/octet-stream")
+    except urllib.error.HTTPError as e:
+        # go2rtc 401（需要验证码/二次验证）等错误需把状态码+JSON 原样回传
+        return Response(content=e.read(), status_code=e.code,
+                        media_type=e.headers.get_content_type() or "application/json")
+    except Exception as e:
+        logger.warning(f"go2rtc 代理失败 {method} {path}: {e}")
+        return JSONResponse(status_code=502, content={"detail": f"无法连接 go2rtc: {e}"})
+
+
+@router.get("/go2rtc/xiaomi")
+def proxy_xiaomi_get(id: str | None = None, region: str | None = None):
+    """代理 go2rtc 小米账号列表 / 设备列表"""
+    params = {}
+    if id:
+        params["id"] = id
+    if region:
+        params["region"] = region
+    return _go2rtc_proxy("GET", "/api/xiaomi", params=params, timeout=120)
+
+
+@router.post("/go2rtc/xiaomi")
+async def proxy_xiaomi_post(request: Request):
+    """代理 go2rtc 小米账号登录（原样转发 form 请求体）"""
+    body = await request.body()
+    return _go2rtc_proxy("POST", "/api/xiaomi", body=body,
+                         content_type=request.headers.get("content-type", "application/x-www-form-urlencoded"))
+
+
+@router.put("/go2rtc/streams")
+def proxy_streams_put(name: str, src: str):
+    """代理 go2rtc 添加视频流"""
+    return _go2rtc_proxy("PUT", "/api/streams", params={"name": name, "src": src}, timeout=30)
+
+
+@router.get("/go2rtc/onvif")
+def proxy_onvif_scan(src: str | None = None):
+    """代理 go2rtc ONVIF 扫描"""
+    params = {}
+    if src:
+        params["src"] = src
+    return _go2rtc_proxy("GET", "/api/onvif", params=params, timeout=120)
 
 
 def _restart_go2rtc() -> bool:

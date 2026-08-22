@@ -160,7 +160,9 @@ td { vertical-align: middle; }
 <div id="status"></div>
 
 <script>
-const GO2RTC = 'http://' + (location.hostname || 'localhost') + ':1984';
+// go2rtc API 统一走后端同源代理（/api/settings/go2rtc/*），避免浏览器
+// 跨端口直连 :1984 时因 HTTPS 混合内容 / 端口不可达 / CORS 抛 "Failed to fetch"
+const GO2RTC_API = '/api/settings/go2rtc';
 
 function status(msg, isErr) {
   const el = document.getElementById('status');
@@ -183,7 +185,7 @@ document.getElementById('btn-onvif').onclick = () => togglePanel('panel-onvif', 
 
 // ── 通用：添加流并通知父窗口 ──
 async function addStream(name, src) {
-  const url = new URL(GO2RTC + '/api/streams');
+  const url = new URL(GO2RTC_API + '/streams', location.origin);
   url.searchParams.set('name', name);
   url.searchParams.set('src', src);
   const r = await fetch(url, { method: 'PUT' });
@@ -234,7 +236,7 @@ async function xiaomiSend(type) {
 async function xiaomiAuth(body) {
   let r;
   try {
-    r = await fetch(GO2RTC + '/api/xiaomi', { method: 'POST', body: body });
+    r = await fetch(GO2RTC_API + '/xiaomi', { method: 'POST', body: body });
   } catch (e) {
     status('网络错误：' + e.message, true);
     showXiaomiView('xiaomi-login');
@@ -265,7 +267,7 @@ async function xiaomiAuth(body) {
 
 async function xiaomiReload() {
   try {
-    const r = await fetch(GO2RTC + '/api/xiaomi', { cache: 'no-cache' });
+    const r = await fetch(GO2RTC_API + '/xiaomi', { cache: 'no-cache' });
     const data = await r.json();
     // 过滤空账号（go2rtc 登录异常时可能写入空 key，导致下拉出现空选项）
     const accounts = (Array.isArray(data) ? data : []).filter(s => s && String(s).trim());
@@ -287,7 +289,7 @@ async function xiaomiLoadDevices() {
     id: document.getElementById('xm-device').value,
     region: document.getElementById('xm-region').value,
   });
-  const r = await fetch(GO2RTC + '/api/xiaomi?' + params.toString(), { cache: 'no-cache' });
+  const r = await fetch(GO2RTC_API + '/xiaomi?' + params.toString(), { cache: 'no-cache' });
   if (!r.ok) { status('加载失败：' + (await r.text()), true); return; }
   const data = await r.json();
   renderDevices('xm-table', data.sources || []);
@@ -298,7 +300,7 @@ async function onvifScan() {
   const table = document.getElementById('onvif-table');
   table.innerHTML = '';
   const src = document.getElementById('onvif-src').value.trim();
-  const url = new URL(GO2RTC + '/api/onvif');
+  const url = new URL(GO2RTC_API + '/onvif', location.origin);
   if (src) url.searchParams.set('src', src);
   const r = await fetch(url.toString(), { cache: 'no-cache' });
   if (!r.ok) { status('ONVIF 扫描失败：' + (await r.text()), true); return; }
