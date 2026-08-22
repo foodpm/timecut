@@ -1,17 +1,32 @@
 """录像管理器 - 使用 FFmpeg segment 实现循环录像"""
 
 import asyncio
+import re
 import subprocess
 import logging
+import socket
 import threading
 from datetime import datetime, timezone, timedelta
+from http.client import HTTPConnection
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from config import settings
-from database import get_session, Recording, Camera
+from database import get_session, Recording
 
 logger = logging.getLogger("timecut.recorder")
+
+# RTSP DESCRIBE 404 的判定：go2rtc 流注册表损坏时对所有流名统一回 404，
+# 而摄像头离线一般是超时/连接拒绝，两者错误形态不同，可据此区分
+_NOT_FOUND_MARK = b"404"
+
+
+def _unix_socket_connect(sock_path: str, timeout: float = 60):
+    """创建连接到 unix socket 的原始套接字（供 HTTPConnection 劫持 connect 用）"""
+    raw = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    raw.settimeout(timeout)
+    raw.connect(sock_path)
+    return raw
 
 
 class RecorderManager:
@@ -28,6 +43,7 @@ class RecorderManager:
         # 同时通过存活检查，导致启动两个 ffmpeg 写同一文件
         self._start_lock = asyncio.Lock()
         self._remuxing = False  # TS→MP4 转封装并发保护
+        self._not_found_streak = 0  # RTSP 连续 404 计数（go2rtc 自愈判定用）
 
     @property
     def is_recording(self) -> bool:
@@ -100,12 +116,6 @@ class RecorderManager:
         seg_dir.mkdir(parents=True, exist_ok=True)
         # MPEG-TS 中间段：写入稳定，关闭后由 _remux_closed_segments 转封装回 MP4
         return str(seg_dir / "%Y%m%d_%H%M%S.ts")
-
-    def _get_stream_url(self) -> str:
-        rtsp = settings.camera_rtsp_url
-        if not rtsp:
-            rtsp = "rtsp://go2rtc:8554/camera1"
-        return rtsp
 
     def _get_stream_url(self) -> str:
         rtsp = settings.camera_rtsp_url
@@ -200,13 +210,23 @@ class RecorderManager:
                 self._running = False
         if proc.returncode == 0:
             self._failures = 0
+            self._not_found_streak = 0
             logger.info("录制进程正常退出")
             return
         self._failures += 1
+        stderr_tail = stderr_data.decode(errors="replace")[-500:]
         logger.error(
-            f"录制进程异常退出 (code={proc.returncode}): "
-            f"{stderr_data.decode(errors='replace')[-500:]}"
+            f"录制进程异常退出 (code={proc.returncode}): {stderr_tail}"
         )
+        # RTSP 持续 404 说明 go2rtc 流注册表损坏（摄像头离线不会报 404），
+        # 仅重启 ffmpeg 无法恢复，尝试自动重启 go2rtc 容器
+        if _NOT_FOUND_MARK in stderr_data and b"DESCRIBE" in stderr_data:
+            self._not_found_streak += 1
+            if self._not_found_streak >= 3:
+                self._not_found_streak = 0
+                await self._restart_go2rtc()
+        else:
+            self._not_found_streak = 0
         # 连续失败过多（如 RTSP 地址配置错误）时暂停，避免死循环快速重启
         if self._failures >= 6:
             logger.error("录制连续失败 6 次，暂停 60 秒后重试")
@@ -288,6 +308,77 @@ class RecorderManager:
                 except ProcessLookupError:
                     pass
                 return
+
+    def _rtsp_describe_not_found(self) -> bool | None:
+        """裸 socket 发 RTSP DESCRIBE，判断服务端是否回 404。
+
+        返回 True=404（流注册表损坏）、False=正常响应、None=连不上（网络问题，
+        不属于 go2rtc 自愈场景）。从流地址解析目标，兼容 go2rtc 与直连摄像头地址。
+        """
+        url = self._get_stream_url().strip()
+        m = re.match(r"rtsp://([^/@]+@)?([^/:]+)(?::(\d+))?(/.*)", url)
+        if not m:
+            return None
+        host, port = m.group(2), int(m.group(3) or 554)
+        path = (m.group(4) or "/").split("?")[0].lstrip("/") or ""
+        req = (
+            f"DESCRIBE rtsp://{host}:{port}/{path} RTSP/1.0\r\n"
+            f"CSeq: 1\r\nAccept: application/sdp\r\n\r\n"
+        ).encode()
+        try:
+            with socket.create_connection((host, port), timeout=5) as s:
+                s.settimeout(5)
+                s.sendall(req)
+                data = s.recv(1024)
+        except OSError as e:
+            logger.debug(f"RTSP 探测连接失败: {e}")
+            return None
+        if not data.startswith(b"RTSP/1.0"):
+            return None
+        return _NOT_FOUND_MARK in data.split(b"\r\n", 1)[0]
+
+    async def _restart_go2rtc(self):
+        """通过 Docker API 重启 go2rtc 容器（自愈流注册表损坏）"""
+        name = settings.go2rtc_container_name
+        sock = settings.docker_socket_path
+        if not name or not sock:
+            logger.warning("RTSP 持续 404，但未配置 go2rtc 容器名/socket 路径，跳过自愈")
+            return
+        # 先用 DESCRIBE 复核一次：404 确实存在才动手，避免误杀
+        if self._rtsp_describe_not_found() is not True:
+            logger.info("RTSP 探测未复现 404，跳过 go2rtc 重启")
+            return
+        logger.warning(f"RTSP 持续 404，尝试重启容器 {name} ...")
+        try:
+            await asyncio.to_thread(self._docker_restart, name, sock)
+        except Exception as e:
+            logger.error(f"重启 go2rtc 容器失败: {e}")
+            return
+        # 等 go2rtc 起来后验证 RTSP 恢复；仍未恢复则继续走 ffmpeg 常规重试
+        await asyncio.sleep(10)
+        ok = self._rtsp_describe_not_found() is False
+        logger.info(f"go2rtc 重启后 RTSP 探测{'恢复' if ok else '仍未恢复'}")
+
+    @staticmethod
+    def _docker_restart(name: str, sock: str):
+        # urllib 不支持 unix socket，用覆写 connect() 的 HTTPConnection 调 Docker API
+        class _UnixHTTPConnection(HTTPConnection):
+            def connect(self):
+                self.sock = _unix_socket_connect(sock)
+
+        conn = _UnixHTTPConnection("d", timeout=60)
+        try:
+            conn.request(
+                "POST", f"/v1.41/containers/{name}/restart?t=30",
+                headers={"Host": "d"},
+            )
+            resp = conn.getresponse()
+            body = resp.read()
+            if resp.status not in (204, 200, 304):
+                raise RuntimeError(f"Docker API {resp.status}: {body[:200]}")
+        finally:
+            conn.close()
+        logger.debug(f"docker restart {name} 完成")
 
     async def stop(self):
         self._stopping = True

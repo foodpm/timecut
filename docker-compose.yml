@@ -27,6 +27,11 @@ services:
       - "${WEB_PORT:-8090}:8090"
     volumes:
       - ./storage:/data
+      # go2rtc 自愈：RTSP 持续 404 时通过 Docker API 自动重启 go2rtc 容器
+      - ${DOCKER_SOCK:-/var/run/docker.sock}:/var/run/docker.sock
+      # 开发热更新：本地修改的代码覆盖镜像内文件（无需重新构建镜像）
+      - ./patches/manager.py:/app/recorder/manager.py:ro
+      - ./patches/config.py:/app/config.py:ro
     environment:
       - TZ=Asia/Shanghai
       - DATA_DIR=/data

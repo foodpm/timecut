@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     tz: str = "Asia/Shanghai"
     go2rtc_url: str = "http://localhost:1984"
     go2rtc_config_path: str = "go2rtc.yaml"
+    # ── go2rtc 自愈：RTSP 持续 404 时自动重启该容器（需挂载 docker.sock，留空禁用）──
+    go2rtc_container_name: str = "timecut-go2rtc"
+    docker_socket_path: str = "/var/run/docker.sock"
     recording_enabled: bool = True
     # ── 大模型识别精华片段 ──
     ai_enabled: bool = False
