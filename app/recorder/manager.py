@@ -6,6 +6,7 @@ import subprocess
 import logging
 import socket
 import threading
+import time
 from datetime import datetime, timezone, timedelta
 from http.client import HTTPConnection
 from pathlib import Path
@@ -19,6 +20,18 @@ logger = logging.getLogger("timecut.recorder")
 # RTSP DESCRIBE 404 的判定：go2rtc 流注册表损坏时对所有流名统一回 404，
 # 而摄像头离线一般是超时/连接拒绝，两者错误形态不同，可据此区分
 _NOT_FOUND_MARK = b"404"
+
+# go2rtc 故障特征：命中后仅重启 ffmpeg 无法恢复，需重启 go2rtc 容器。
+# 1) DESCRIBE 404 —— 流注册表损坏/按需源启动失败；
+# 2) Invalid data —— cs2 会话僵死：连接存活但上行数据停滞，DESCRIBE 仍返回
+#    200，无法用 404 探测区分，与 404 一并计数、靠冷却时间防误杀防风暴
+_GO2RTC_FAULT_MARKS = (
+    b"DESCRIBE failed: 404",
+    b"Error opening input: Invalid data found when processing input",
+)
+
+# go2rtc 自愈重启冷却（秒）：避免摄像头长时间离线时陷入重启风暴
+_GO2RTC_RESTART_COOLDOWN = 600
 
 
 def _unix_socket_connect(sock_path: str, timeout: float = 60):
@@ -43,7 +56,8 @@ class RecorderManager:
         # 同时通过存活检查，导致启动两个 ffmpeg 写同一文件
         self._start_lock = asyncio.Lock()
         self._remuxing = False  # TS→MP4 转封装并发保护
-        self._not_found_streak = 0  # RTSP 连续 404 计数（go2rtc 自愈判定用）
+        self._go2rtc_fault_streak = 0  # go2rtc 故障特征连续计数（自愈判定用）
+        self._go2rtc_restart_at = 0.0  # 上次自愈重启时刻（monotonic，冷却用）
 
     @property
     def is_recording(self) -> bool:
@@ -210,7 +224,7 @@ class RecorderManager:
                 self._running = False
         if proc.returncode == 0:
             self._failures = 0
-            self._not_found_streak = 0
+            self._go2rtc_fault_streak = 0
             logger.info("录制进程正常退出")
             return
         self._failures += 1
@@ -218,15 +232,17 @@ class RecorderManager:
         logger.error(
             f"录制进程异常退出 (code={proc.returncode}): {stderr_tail}"
         )
-        # RTSP 持续 404 说明 go2rtc 流注册表损坏（摄像头离线不会报 404），
-        # 仅重启 ffmpeg 无法恢复，尝试自动重启 go2rtc 容器
-        if _NOT_FOUND_MARK in stderr_data and b"DESCRIBE" in stderr_data:
-            self._not_found_streak += 1
-            if self._not_found_streak >= 3:
-                self._not_found_streak = 0
+        # 命中 go2rtc 故障特征（DESCRIBE 404 / Invalid data 会话僵死）时，
+        # 仅重启 ffmpeg 无法恢复，连续 3 次后自动重启 go2rtc 容器。
+        # 不能依赖 DESCRIBE 探测复核：会话僵死时 DESCRIBE 正常返回，
+        # 实测持续 404 期间探测始终未复现，靠冷却时间防误杀防风暴
+        if any(mark in stderr_data for mark in _GO2RTC_FAULT_MARKS):
+            self._go2rtc_fault_streak += 1
+            if self._go2rtc_fault_streak >= 3:
+                self._go2rtc_fault_streak = 0
                 await self._restart_go2rtc()
         else:
-            self._not_found_streak = 0
+            self._go2rtc_fault_streak = 0
         # 连续失败过多（如 RTSP 地址配置错误）时暂停，避免死循环快速重启
         if self._failures >= 6:
             logger.error("录制连续失败 6 次，暂停 60 秒后重试")
@@ -338,17 +354,19 @@ class RecorderManager:
         return _NOT_FOUND_MARK in data.split(b"\r\n", 1)[0]
 
     async def _restart_go2rtc(self):
-        """通过 Docker API 重启 go2rtc 容器（自愈流注册表损坏）"""
+        """通过 Docker API 重启 go2rtc 容器（自愈注册表损坏/会话僵死）"""
         name = settings.go2rtc_container_name
         sock = settings.docker_socket_path
         if not name or not sock:
-            logger.warning("RTSP 持续 404，但未配置 go2rtc 容器名/socket 路径，跳过自愈")
+            logger.warning("RTSP 持续故障，但未配置 go2rtc 容器名/socket 路径，跳过自愈")
             return
-        # 先用 DESCRIBE 复核一次：404 确实存在才动手，避免误杀
-        if self._rtsp_describe_not_found() is not True:
-            logger.info("RTSP 探测未复现 404，跳过 go2rtc 重启")
+        # 冷却期内不重复重启，防误杀防风暴（探测复核不可靠，见调用处说明）
+        now = time.monotonic()
+        if now - self._go2rtc_restart_at < _GO2RTC_RESTART_COOLDOWN:
+            logger.info("go2rtc 自愈处于冷却期，跳过重启，继续常规重试")
             return
-        logger.warning(f"RTSP 持续 404，尝试重启容器 {name} ...")
+        self._go2rtc_restart_at = now
+        logger.warning(f"RTSP 持续故障，尝试重启容器 {name} ...")
         try:
             await asyncio.to_thread(self._docker_restart, name, sock)
         except Exception as e:
