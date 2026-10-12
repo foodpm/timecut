@@ -7,7 +7,7 @@ from pathlib import Path
 from datetime import datetime
 
 from config import settings
-from .detector import MotionDetector, MotionSegment
+from .detector import MotionDetector, MotionSegment, sort_by_score_round_robin
 
 logger = logging.getLogger("timecut.clipper")
 
@@ -74,7 +74,10 @@ class HighlightClipper:
                 scene_cache[src] = detector._detect_scenes(src)
             return scene_cache[src]
 
-        sorted_segs = sorted(segments, key=lambda s: s[0].score, reverse=True)
+        # 同分片段按时段轮转排列：按分数补齐时各时段机会均等，避免偏向早晨
+        sorted_segs = sort_by_score_round_robin(
+            segments, lambda item: int(global_start(item) // 3600)
+        )
         selected = []
         sel_total = 0.0
         # 同事件去重间隔：连续事件会被切到多个相邻片段（跨 20 分钟录像文件），

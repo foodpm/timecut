@@ -10,7 +10,7 @@ import urllib.request
 from pathlib import Path
 
 from config import settings
-from .detector import MotionSegment
+from .detector import MotionSegment, sort_by_score_round_robin, file_hour_of
 
 logger = logging.getLogger("timecut.ai_selector")
 
@@ -57,8 +57,9 @@ class AISelector:
         if not self.api_key:
             logger.error("未配置大模型 API Key，跳过 AI 识别，使用运动检测分数")
             return segments, False
-        sorted_segs = sorted(segments, key=lambda s: s[0].score, reverse=True)
-        candidates = sorted_segs[: self.max_segments]
+        # 同分片段按时段轮转后再截断，避免早晨同分片段垄断候选名额
+        ranked = sort_by_score_round_robin(segments, lambda item: file_hour_of(item[1]))
+        candidates = ranked[: self.max_segments]
         logger.info(f"AI 识别 {len(candidates)} 个候选片段 (model={self.model})")
         scored = []
         success = 0

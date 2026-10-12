@@ -9,6 +9,53 @@ from config import settings
 logger = logging.getLogger("timecut.detector")
 
 
+def sort_by_score_round_robin(segments: list, hour_of) -> list:
+    """按分数降序排序；分数相同（±1 秒内视为同级）的片段按时段轮转交错。
+
+    避免稳定排序下同分片段总是早晨排前面，把截断名额（如 AI 候选池 Top-N）
+    全部占满。hour_of(item) 返回片段所属时段编号（0-23），轮转按时段升序进行：
+    例如 0 点段 5 个、19 点段 3 个同分片段 → 0点, 19点, 0点, 19点, ... 交错排列。
+    """
+    keyed = sorted(segments, key=lambda s: s[0].score, reverse=True)
+    result = []
+    i = 0
+    while i < len(keyed):
+        j = i + 1
+        while j < len(keyed) and keyed[i][0].score - keyed[j][0].score < 1.0:
+            j += 1
+        group = keyed[i:j]
+        if len(group) == 1:
+            result.extend(group)
+        else:
+            by_hour: dict[int, list] = {}
+            for item in group:
+                by_hour.setdefault(hour_of(item), []).append(item)
+            hours = sorted(by_hour)
+            idx = 0
+            while True:
+                emitted = False
+                for h in hours:
+                    if idx < len(by_hour[h]):
+                        result.append(by_hour[h][idx])
+                        emitted = True
+                if not emitted:
+                    break
+                idx += 1
+        i = j
+    return result
+
+
+def file_hour_of(src) -> int:
+    """从录像文件名解析所属小时（20261011_190019.mp4 → 19），解析失败返回 0"""
+    stem = src.stem
+    if len(stem) == 15 and stem[8] == "_":
+        try:
+            return int(stem[9:11])
+        except ValueError:
+            pass
+    return 0
+
+
 class MotionSegment:
     """一个运动密集片段"""
 
@@ -91,7 +138,8 @@ class MotionDetector:
                 cluster_end = ts
             else:
                 if cluster_end - cluster_start >= 5:
-                    score = min(100, (cluster_end - cluster_start) / 10 * 10)
+                    # 不封顶：用真实活动跨度（秒）作分数，避免大量同分满分导致选段偏向早晨
+                    score = cluster_end - cluster_start
                     segments.append(MotionSegment(
                         start=max(0, cluster_start - 5),
                         end=cluster_end + 5,
@@ -100,7 +148,7 @@ class MotionDetector:
                 cluster_start = ts
                 cluster_end = ts
         if cluster_end - cluster_start >= 5:
-            score = min(100, (cluster_end - cluster_start) / 10 * 10)
+            score = cluster_end - cluster_start
             segments.append(MotionSegment(
                 start=max(0, cluster_start - 5),
                 end=cluster_end + 5,
